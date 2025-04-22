@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Cadastro de Lead</title>
+  <script src="/static/script.js" defer></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .dropzone {
+      border: 2px dashed #007bff;
+      padding: 30px;
+      text-align: center;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Cadastro de Lead com Upload de Conta</h2>
+  <form id="lead-form">
+    <label>Responsável: <input name="nome" required></label><br><br>
+    <label>Telefone: <input name="tel" required></label><br><br>
+    <label>Email: <input name="email" type="email" required></label><br><br>
+    <label>Conversão:
+      <select name="conversao">
+        <option value="indicacao">Indicação</option>
+        <option value="captacao">Captação</option>
+      </select>
+    </label><br><br>
+
+    <div class="dropzone" id="drop-area">Arraste sua conta de energia aqui ou clique para selecionar</div>
+    <input type="file" id="file-input" hidden accept="application/pdf">
+    
+    <h3>Dados extraídos:</h3>
+    <label>Cidade: <input name="cidade" id="cidade"></label><br>
+    <label>CEP: <input name="cep" id="cep"></label><br>
+    <label>Rua: <input name="rua" id="rua"></label><br>
+    <label>Número: <input name="numero" id="numero"></label><br>
+    <label>Consumo médio: <input name="consumo_medio" id="consumo_medio"></label><br>
+    <label>CPF: <input name="cpf" id="cpf"></label><br><br>
+
+    <button type="submit">Criar Lead</button>
+  </form>
+</body>
+</html>
