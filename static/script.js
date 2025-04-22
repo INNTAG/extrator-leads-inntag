@@ -11,7 +11,7 @@ dropArea.addEventListener("dragover", e => {
   dropArea.style.borderColor = "green";
 });
 dropArea.addEventListener("dragleave", () => {
-  dropArea.style.borderColor = "#007bff";
+  dropArea.style.borderColor = "#0099b2";
 });
 dropArea.addEventListener("drop", e => {
   e.preventDefault();
@@ -33,6 +33,9 @@ function handleFile(file) {
     document.getElementById("numero").value = data.numero || "";
     document.getElementById("consumo_medio").value = data.consumo_medio || "";
     document.getElementById("cpf").value = data.cpf || "";
+    document.getElementById("nome").value = data.nome || "";
+
+    document.getElementById("preview-pdf").src = `/pdf/${data.arquivo}`;
   });
 }
 

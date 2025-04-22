@@ -2,43 +2,122 @@
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
-  <title>Cadastro de Lead</title>
+  <title>Lead Inntag</title>
   <script src="/static/script.js" defer></script>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    .dropzone {
-      border: 2px dashed #007bff;
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f6f8;
+      color: #333;
+    }
+    .container {
+      max-width: 900px;
+      margin: 30px auto;
+      background: #fff;
       padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    }
+    h2, h3 {
+      color: #005c91;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    .dropzone {
+      border: 2px dashed #0099b2;
+      background: #ecf9fb;
+      padding: 40px;
       text-align: center;
-      margin-top: 10px;
+      cursor: pointer;
+      color: #007b8a;
+      font-weight: bold;
+      border-radius: 8px;
+    }
+    .btn {
+      padding: 12px 25px;
+      background: #0099b2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    .btn:hover {
+      background: #007788;
+    }
+    iframe {
+      margin-top: 20px;
+      width: 100%;
+      height: 500px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
     }
   </style>
 </head>
 <body>
-  <h2>Cadastro de Lead com Upload de Conta</h2>
-  <form id="lead-form">
-    <label>Responsável: <input name="nome" required></label><br><br>
-    <label>Telefone: <input name="tel" required></label><br><br>
-    <label>Email: <input name="email" type="email" required></label><br><br>
-    <label>Conversão:
-      <select name="conversao">
-        <option value="indicacao">Indicação</option>
-        <option value="captacao">Captação</option>
-      </select>
-    </label><br><br>
+  <div class="container">
+    <h2>Cadastro de Lead - Inntag Energia Solar</h2>
 
-    <div class="dropzone" id="drop-area">Arraste sua conta de energia aqui ou clique para selecionar</div>
-    <input type="file" id="file-input" hidden accept="application/pdf">
-    
-    <h3>Dados extraídos:</h3>
-    <label>Cidade: <input name="cidade" id="cidade"></label><br>
-    <label>CEP: <input name="cep" id="cep"></label><br>
-    <label>Rua: <input name="rua" id="rua"></label><br>
-    <label>Número: <input name="numero" id="numero"></label><br>
-    <label>Consumo médio: <input name="consumo_medio" id="consumo_medio"></label><br>
-    <label>CPF: <input name="cpf" id="cpf"></label><br><br>
+    <div class="section">
+      <h3>Informações do Responsável</h3>
+      <form id="lead-form">
+        <label>Responsável:</label>
+        <input name="nome" id="nome" required>
 
-    <button type="submit">Criar Lead</button>
-  </form>
+        <label>Telefone:</label>
+        <input name="tel" required>
+
+        <label>Email:</label>
+        <input name="email" type="email" required>
+
+        <label>Conversão:</label>
+        <select name="conversao">
+          <option value="indicacao">Indicação</option>
+          <option value="captacao">Captação</option>
+        </select>
+    </div>
+
+    <div class="section">
+      <h3>Conta de Energia</h3>
+      <div class="dropzone" id="drop-area">Arraste ou clique aqui para enviar o PDF da conta de energia</div>
+      <input type="file" id="file-input" hidden accept="application/pdf">
+      <iframe id="preview-pdf"></iframe>
+    </div>
+
+    <div class="section">
+      <h3>Dados extraídos</h3>
+      <label>Cidade:</label>
+      <input name="cidade" id="cidade">
+      <label>CEP:</label>
+      <input name="cep" id="cep">
+      <label>Rua:</label>
+      <input name="rua" id="rua">
+      <label>Número:</label>
+      <input name="numero" id="numero">
+      <label>Consumo médio:</label>
+      <input name="consumo_medio" id="consumo_medio">
+      <label>CPF:</label>
+      <input name="cpf" id="cpf">
+    </div>
+
+    <button type="submit" class="btn">Criar Lead</button>
+    </form>
+  </div>
 </body>
 </html>
