@@ -35,7 +35,7 @@ def upload():
     }
 
     with pdfplumber.open(filepath) as pdf:
-        full_text = "
+        full_text = extract_pdf_text(pdf_path)
 ".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
         # Nome (LINHA ESPECÍFICA QUE NÃO CONTENHA "NOTA FISCAL")
