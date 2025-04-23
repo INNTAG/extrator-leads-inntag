@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify, render_template, send_file
 import pdfplumber
 import re
 import os
-from werkzeug.utils import secure_filename
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -16,6 +16,7 @@ def form():
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    # Recebe e salva o arquivo
     file = request.files['file']
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -29,49 +30,61 @@ def upload():
         "rua": "",
         "numero": "",
         "consumo_medio": "",
-        "consumos": [],
         "arquivo": filename,
-        "atualizado_em": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        "consumos": [],
+        "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
+    # Abre e extrai texto do PDF
     with pdfplumber.open(filepath) as pdf:
-        full_text = "".join([page.extract_text() for page in pdf.pages if page.extract_text()])
-        # Nome (LINHA ESPECÍFICA QUE NÃO CONTENHA "NOTA FISCAL")
-        nome_match = re.search(r"(?m)^([A-Z\s]+)
-R ", full_text)
-        if nome_match and "NOTA FISCAL" not in nome_match.group(1):
+        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+        # Nome: primeira linha em caixa alta com 2+ palavras (regex corrigido)
+        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+)", full_text, re.MULTILINE)
+        if nome_match:
             data['nome'] = nome_match.group(1).strip().upper()
 
         # CPF
-        cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', full_text)
+        cpf_match = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
 
-        # Rua e Número
-        rua_match = re.search(r"(?m)^R\s?([A-Z\s]+),\s?(\d+)", full_text)
-        if rua_match:
-            data['rua'] = "R " + rua_match.group(1).strip().title()
-            data['numero'] = rua_match.group(2)
+        # Endereço e número
+        end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
+        if end_match:
+            data['rua'] = end_match.group(1).strip().title()
+            data['numero'] = end_match.group(2)
 
-        # Cidade e CEP
-        cidade_match = re.search(r"(?m)(\d{5}-\d{3})\s+([A-Z\s]+)\s+-\s+[A-Z]{2}", full_text)
-        if cidade_match:
-            data['cep'] = cidade_match.group(1)
-            data['cidade'] = cidade_match.group(2).title()
+        # CEP e cidade
+        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
+        if loc_match:
+            data['cep'] = loc_match.group(1)
+            data['cidade'] = loc_match.group(2).strip().title()
 
-        # Consumos dos últimos 12 meses (valores numéricos seguidos de "kWh")
-        consumo_matches = re.findall(r'(\d{2,6})\s*kWh', full_text)
-        consumos = list(map(int, consumo_matches[-12:])) if len(consumo_matches) >= 2 else []
-        data['consumos'] = consumos
-        if consumos:
-            data['consumo_medio'] = round(sum(consumos) / len(consumos), 2)
+        # Consumo: últimos 12 valores de kWh (captura com vírgula ou ponto)
+        consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
+        if consumo_vals:
+            ultimos = consumo_vals[-12:]
+            numericos = []
+            for val in ultimos:
+                num = val.replace('.', '').replace(',', '.')
+                try:
+                    numericos.append(float(num))
+                except:
+                    pass
+            if numericos:
+                data['consumos'] = numericos
+                data['consumo_medio'] = round(sum(numericos) / len(numericos), 2)
 
     return jsonify(data)
 
 @app.route('/pdf/<filename>')
 def get_pdf(filename):
-    return send_file(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if os.path.exists(path):
+        return send_file(path)
+    return 'Arquivo não encontrado', 404
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
