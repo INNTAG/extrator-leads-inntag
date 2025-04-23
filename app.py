@@ -1,14 +1,73 @@
+from flask import Flask, request, jsonify, render_template, send_file
 import fitz  # PyMuPDF
-from flask import Flask, request, jsonify, render_template
 import re
 import os
-from werkzeug.utils import secure_filename
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+def extract_info_from_pdf(filepath):
+    data = {
+        "nome": "",
+        "cpf": "",
+        "cidade": "",
+        "cep": "",
+        "rua": "",
+        "numero": "",
+        "consumo_medio": 0,
+        "arquivo": os.path.basename(filepath),
+        "consumos": [],
+        "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    }
+
+    with fitz.open(filepath) as doc:
+        for page in doc:
+            text = page.get_text()
+
+            # Extrair CPF
+            cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
+            if cpf_match:
+                data['cpf'] = cpf_match.group(1)
+
+            # Extrair bloco "DADOS DA UNIDADE CONSUMIDORA"
+            if "DADOS DA UNIDADE CONSUMIDORA" in text:
+                lines = text.splitlines()
+                idx = [i for i, l in enumerate(lines) if "DADOS DA UNIDADE CONSUMIDORA" in l]
+                if idx:
+                    start = idx[0] + 1
+                    bloco = lines[start:start+4]
+                    if len(bloco) >= 4:
+                        data['nome'] = bloco[0].strip().title()
+                        rua_num = bloco[1].strip().title()
+                        bairro = bloco[2].strip().title()
+                        cep_cidade_uf = bloco[3].strip()
+
+                        data['rua'] = re.sub(r'[\d].*', '', rua_num).strip()
+                        num_match = re.search(r'(\d+)', rua_num)
+                        if num_match:
+                            data['numero'] = num_match.group(1)
+
+                        cep_match = re.search(r'(\d{5}-\d{3})', cep_cidade_uf)
+                        if cep_match:
+                            data['cep'] = cep_match.group(1)
+                            cidade_uf = cep_cidade_uf.split(cep_match.group(1))[-1].strip()
+                            if '-' in cidade_uf:
+                                data['cidade'] = cidade_uf.split('-')[0].strip().title()
+
+            # Extrair histórico de consumo (valores numéricos repetidos ao fim do texto)
+            matches = re.findall(r'(\d{3,4})\s+kWh', text)
+            historico = [int(x) for x in matches if 100 <= int(x) <= 9999]
+            if historico:
+                data['consumos'] = historico[-12:]  # últimos 12 meses
+                data['consumo_medio'] = round(sum(data['consumos']) / len(data['consumos']), 2)
+
+            break  # considera apenas a primeira página com dados principais
+
+    return data
 
 @app.route('/')
 def form():
@@ -20,69 +79,15 @@ def upload():
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
+    extracted_data = extract_info_from_pdf(filepath)
+    return jsonify(extracted_data)
 
-    data = {
-        "nome": "",
-        "cpf": "",
-        "cidade": "",
-        "cep": "",
-        "rua": "",
-        "numero": "",
-        "consumo_medio": "",
-        "arquivo": filename,
-        "consumos": [],
-        "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
-    }
-
-    with fitz.open(filepath) as pdf:
-        for page in pdf:
-            text = page.get_text("text")
-
-            # CPF
-            cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
-            if cpf_match:
-                data['cpf'] = cpf_match.group(1)
-
-            # Extrai bloco "DADOS DA UNIDADE CONSUMIDORA"
-            if "DADOS DA UNIDADE CONSUMIDORA" in text:
-                lines = text.splitlines()
-                start_index = None
-                for i, line in enumerate(lines):
-                    if "DADOS DA UNIDADE CONSUMIDORA" in line:
-                        start_index = i + 1
-                        break
-                if start_index:
-                    bloco = lines[start_index:start_index+4]
-                    if len(bloco) >= 4:
-                        data['nome'] = bloco[0].strip()
-                        data['rua'] = bloco[1].strip()
-                        bairro_linha = bloco[2].strip()
-                        cidade_cep_uf = bloco[3].strip()
-
-                        # Número (últimos dígitos na linha da rua)
-                        numero_match = re.search(r'(\d+)', data['rua'])
-                        if numero_match:
-                            data['numero'] = numero_match.group(1)
-
-                        # Cidade, CEP e UF
-                        cep_cidade_match = re.search(r'(\d{5}-\d{3})\s+(.*?)\s*-\s*([A-Z]{2})', cidade_cep_uf)
-                        if cep_cidade_match:
-                            data['cep'] = cep_cidade_match.group(1)
-                            data['cidade'] = cep_cidade_match.group(2).strip()
-
-            # Consumos (gráfico inferior)
-            blocos = page.search_for("HISTÓRICO DE CONSUMO")
-            if blocos:
-                bbox = fitz.Rect(0, blocos[0].y1 + 5, page.rect.width, page.rect.height)
-                historico = page.get_text("text", clip=bbox)
-                matches = re.findall(r'(\d{2,4})\s*$', historico, re.MULTILINE)
-                valores = [int(v) for v in matches if 100 <= int(v) <= 9999]
-                if len(valores) >= 6:
-                    data['consumos'] = valores[-12:]
-                    data['consumo_medio'] = round(sum(data['consumos']) / len(data['consumos']), 2)
-            break
-
-    return jsonify(data)
+@app.route('/pdf/<filename>')
+def get_pdf(filename):
+    path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if os.path.exists(path):
+        return send_file(path)
+    return 'Arquivo não encontrado', 404
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=10000)
