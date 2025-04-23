@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from flask import Flask, request, jsonify, render_template, send_file
 import pdfplumber
 import re
@@ -96,3 +97,6 @@ def get_pdf(filename):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+=======
+# Código do app.py será preenchido conforme o canvas salvo
+>>>>>>> df84c9d (Atualização com integração do webhook Make e correções no consumo)
