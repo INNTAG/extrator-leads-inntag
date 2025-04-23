@@ -28,48 +28,44 @@ def upload():
         "cep": "",
         "rua": "",
         "numero": "",
-        "consumo_medio": "",
+        "consumo_medio": 0,
         "arquivo": filename,
         "consumos": [],
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    doc = fitz.open(filepath)
-    for page in doc:
-        blocks = page.get_text("dict")['blocks']
-        for block in blocks:
-            for line in block.get("lines", []):
-                line_text = " ".join([span['text'] for span in line['spans']]).strip()
-                if re.search(r'\d{3}\.\d{3}\.\d{3}-\d{2}', line_text):
-                    data['cpf'] = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', line_text).group(1)
-                    index = blocks.index(block)
-                    if index > 0:
-                        for l in blocks[index - 1].get("lines", []):
-                            nome_line = " ".join([span['text'] for span in l['spans']]).strip()
-                            if len(nome_line.split()) >= 2:
-                                data['nome'] = nome_line.upper()
-                                break
-                    break
+    with fitz.open(filepath) as pdf:
+        text = "\n".join([page.get_text() for page in pdf])
 
-        full_text = page.get_text()
-        loc_match = re.search(r'(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}', full_text)
-        if loc_match:
-            data['cep'] = loc_match.group(1)
-            data['cidade'] = loc_match.group(2).strip().title()
+        # Nome: linha acima de RES ZURICH ou acima do endereço
+        match_nome = re.search(r"(?<=\n)([A-Z\s]+)(?=\nR\s+BERNARDO|\nRES ZURICH)", text)
+        if match_nome:
+            data['nome'] = match_nome.group(1).strip()
 
-        rua_match = re.search(r'(R\.?\s+[^,\n]+)[,\s]+(\d+)', full_text)
-        if rua_match:
-            data['rua'] = rua_match.group(1).strip().title()
-            data['numero'] = rua_match.group(2)
+        # CPF
+        match_cpf = re.search(r"(\d{3}\.\d{3}\.\d{3}-\d{2})", text)
+        if match_cpf:
+            data['cpf'] = match_cpf.group(1)
 
-        # Consumo
-        consumo_match = re.findall(r'(\d{3,4})\s+kWh', full_text)
-        if consumo_match:
-            consumos = [float(c) for c in consumo_match[-12:]]
-            if consumos:
-                data['consumos'] = consumos
-                data['consumo_medio'] = round(sum(consumos) / len(consumos), 2)
-        break  # primeira página
+        # Rua e número
+        match_end = re.search(r"(R\.?\s[^\n,]+)\s+(\d+)[^\n]*", text)
+        if match_end:
+            data['rua'] = match_end.group(1).strip()
+            data['numero'] = match_end.group(2)
+
+        # CEP e cidade
+        match_cep = re.search(r"(\d{5}-\d{3})\s+(.*?)\s+-\s+[A-Z]{2}", text)
+        if match_cep:
+            data['cep'] = match_cep.group(1)
+            data['cidade'] = match_cep.group(2).strip()
+
+        # Consumos: capturar a tabela final com meses e kWh
+        historico = re.findall(r"(\d{3,4})\s+\d{2,3}", text)
+        consumos = [int(kwh) for kwh in historico if 100 <= int(kwh) <= 9999]
+        if len(consumos) >= 12:
+            consumos = consumos[-12:]
+            data['consumos'] = consumos
+            data['consumo_medio'] = round(sum(consumos)/len(consumos), 2)
 
     return jsonify(data)
 
