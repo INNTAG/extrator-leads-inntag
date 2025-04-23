@@ -20,7 +20,6 @@ def upload():
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
-
     data = {
         "nome": "",
         "cpf": "",
@@ -33,40 +32,37 @@ def upload():
         "consumos": [],
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
-
     with pdfplumber.open(filepath) as pdf:
-        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-        # Nome: primeira linha em caixa alta
-        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ ]{4,})$", full_text, re.MULTILINE)
+        full_text = "
+".join(page.extract_text() or "" for page in pdf.pages)
+        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+)", full_text, re.MULTILINE)
         if nome_match:
-            data['nome'] = nome_match.group(1).title()
-
-        # CPF
+            data['nome'] = nome_match.group(1).strip().upper()
         cpf_match = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
-
-        # Endereço e número
         end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
         if end_match:
-            data['rua'] = end_match.group(1).title().strip()
+            data['rua'] = end_match.group(1).strip().title()
             data['numero'] = end_match.group(2)
-
-        # CEP e Cidade: captura linha "13049-346 CAMPINAS - SP"
-        loc_match = re.search(r"(\d{5}-\d{3})\s+([^-\n]+)\s+-\s+([A-Z]{2})", full_text)
+        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-
+]+?)\s+-\s+[A-Z]{2}", full_text)
         if loc_match:
             data['cep'] = loc_match.group(1)
-            city = loc_match.group(2).strip()
-            data['cidade'] = re.sub(r"\s+", " ", city).title()
-
-        # Consumo últimos 12 meses
-        consumo_vals = re.findall(r"(\d{2,4})\s*kWh", full_text)
-        if len(consumo_vals) >= 12:
-            vals = [int(x) for x in consumo_vals[-12:]]
-            data['consumos'] = vals
-            data['consumo_medio'] = round(sum(vals)/len(vals), 2)
-
+            data['cidade'] = loc_match.group(2).strip().title()
+        consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
+        if consumo_vals:
+            ultimos = consumo_vals[-12:]
+            numericos = []
+            for val in ultimos:
+                num = val.replace('.', '').replace(',', '.')
+                try:
+                    numericos.append(float(num))
+                except:
+                    pass
+            if numericos:
+                data['consumos'] = numericos
+                data['consumo_medio'] = round(sum(numericos) / len(numericos), 2)
     return jsonify(data)
 
 @app.route('/pdf/<filename>')
@@ -77,4 +73,5 @@ def get_pdf(filename):
     return 'Arquivo não encontrado', 404
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
