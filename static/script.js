@@ -3,7 +3,6 @@ const fileInput = document.getElementById("file-input");
 const form = document.getElementById("lead-form");
 
 dropArea.addEventListener("click", () => fileInput.click());
-
 fileInput.addEventListener("change", () => handleFile(fileInput.files[0]));
 
 dropArea.addEventListener("dragover", e => {
@@ -11,7 +10,7 @@ dropArea.addEventListener("dragover", e => {
   dropArea.style.borderColor = "green";
 });
 dropArea.addEventListener("dragleave", () => {
-  dropArea.style.borderColor = "#0099b2";
+  dropArea.style.borderColor = "#007bff";
 });
 dropArea.addEventListener("drop", e => {
   e.preventDefault();
