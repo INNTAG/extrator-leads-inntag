@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template, send_file
 import fitz  # PyMuPDF
-import re
 import os
+import re
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
@@ -34,45 +34,39 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    with fitz.open(filepath) as doc:
-        for page in doc:
-            text = page.get_text("text")
+    doc = fitz.open(filepath)
+    full_text = ""
+    for page in doc:
+        full_text += page.get_text()
 
-            # CPF
-            cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
-            if cpf_match:
-                data['cpf'] = cpf_match.group(1)
+    # Nome
+    nome_match = re.search(r'(LU[IÍ]Z\s+[A-Z\s]+CAMARGO)', full_text)
+    if nome_match:
+        data['nome'] = nome_match.group(1).strip()
 
-            # Nome (linha acima do endereço, ignorando palavras genéricas)
-            lines = text.split('\n')
-            for i, line in enumerate(lines):
-                if re.search(r'\d{5}-\d{3}', line):
-                    for j in range(i - 4, i):
-                        candidate = lines[j].strip()
-                        if len(candidate.split()) >= 2 and not any(word in candidate.upper() for word in ["PREZADO", "MANTENHA", "ATUALIZADOS"]):
-                            data['nome'] = candidate.upper()
-                            break
-                    break
+    # CPF
+    cpf_match = re.search(r'\d{3}\.\d{3}\.\d{3}-\d{2}', full_text)
+    if cpf_match:
+        data['cpf'] = cpf_match.group(0)
 
-            # Endereço completo com número
-            end_match = re.search(r'(R\.?\s?[A-Z][^,\n]+)[,\s]+(\d+)', text)
-            if end_match:
-                data['rua'] = end_match.group(1).strip().title()
-                data['numero'] = end_match.group(2)
+    # Cidade e CEP
+    loc_match = re.search(r'(\d{5}-\d{3})\s+([A-Z\s]{3,})', full_text)
+    if loc_match:
+        data['cep'] = loc_match.group(1)
+        data['cidade'] = loc_match.group(2).strip().title()
 
-            # Cidade e CEP
-            loc_match = re.search(r'(\d{5}-\d{3})\s+([A-ZÀ-Úa-zà-ú\s]+)', text)
-            if loc_match:
-                data['cep'] = loc_match.group(1)
-                data['cidade'] = loc_match.group(2).strip().title()
+    # Endereço e número
+    rua_match = re.search(r'(R\s+[A-Za-zÀ-ÿ\s]+)\s+(\d{1,4})', full_text)
+    if rua_match:
+        data['rua'] = rua_match.group(1).strip()
+        data['numero'] = rua_match.group(2).strip()
 
-            # Consumo histórico (aprimorado)
-            historico_matches = re.findall(r'(\d{3,4})\s*kWh', text, re.IGNORECASE)
-            consumos = [int(x) for x in historico_matches if 100 <= int(x) <= 9999]
-            if len(consumos) >= 2:
-                data['consumos'] = consumos[-12:]  # últimos 12
-                data['consumo_medio'] = round(sum(data['consumos']) / len(data['consumos']), 2)
-            break
+    # Consumo histórico (12 valores)
+    historico_match = re.findall(r'\b(\d{3,4})\b\s+(?:\d{1,2})', full_text)
+    consumos = [int(v) for v in historico_match if 100 < int(v) < 9999]
+    if len(consumos) >= 12:
+        data['consumos'] = consumos[-12:]
+        data['consumo_medio'] = round(sum(data['consumos']) / 12, 2)
 
     return jsonify(data)
 
