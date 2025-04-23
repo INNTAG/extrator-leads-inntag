@@ -65,20 +65,20 @@ def upload():
             data['cep'] = loc_match.group(1)
             data['cidade'] = loc_match.group(2).strip().title()
 
-        # Extração do histórico de consumo dos últimos 12 meses
-        historico_inicio = False
+        # Extração do histórico de consumo na seção de barras
         historico_valores = []
-        for line in lines:
-            if re.search(r"HISTÓRICO DE CONSUMO", line, re.IGNORECASE):
-                historico_inicio = True
-                continue
-            if historico_inicio:
-                matches = re.findall(r'(\d{1,3}[.,]?\d{0,3})\s*kWh', line, re.IGNORECASE)
-                for m in matches:
-                    try:
-                        historico_valores.append(float(m.replace('.', '').replace(',', '.')))
-                    except:
-                        pass
+        for page in pdf.pages:
+            table = page.extract_table()
+            if table:
+                for row in table:
+                    if row and any('kWh' in str(cell) for cell in row):
+                        try:
+                            consumo_str = row[1] if row[1] else ''
+                            if consumo_str.strip().isdigit():
+                                historico_valores.append(float(consumo_str.strip()))
+                        except:
+                            pass
+
         historico_valores = historico_valores[-12:]
         if historico_valores:
             data['consumos'] = historico_valores
