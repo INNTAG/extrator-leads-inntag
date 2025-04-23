@@ -33,36 +33,42 @@ def upload():
     }
 
     with pdfplumber.open(filepath) as pdf:
-        text_pages = [page.extract_text() for page in pdf.pages if page.extract_text()]
-        full_text = "\n".join(text_pages)
-        
-        # Nome: primeira linha em caixa alta da primeira página
-        if text_pages:
-            first_page_lines = text_pages[0].split("\n")
-            for line in first_page_lines:
-                if line.isupper() and len(line.strip()) > 5 and not any(word in line for word in ["CPFL", "NOTA FISCAL", "ENERGIA"]):
-                    data['nome'] = line.strip().title()
+        if not pdf.pages:
+            return jsonify(data)
+
+        page = pdf.pages[0]
+        crop = page.within_bbox((0, 320, page.width, 480))  # Área da tarja verde
+        text = crop.extract_text() if crop else page.extract_text()
+
+        if text:
+            linhas = text.split('\n')
+            # Nome é a primeira linha em caixa alta
+            if len(linhas) > 0 and linhas[0].isupper():
+                data['nome'] = linhas[0].title()
+
+            # Rua e número
+            for linha in linhas:
+                rua_match = re.search(r'R\s?[A-Z ]+,?\s?(\d+)', linha)
+                if rua_match:
+                    data['rua'] = linha.split(',')[0].strip().title()
+                    data['numero'] = rua_match.group(1)
                     break
 
-        # CPF
-        cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', full_text)
-        if cpf_match:
-            data['cpf'] = cpf_match.group(1)
+            # Cidade e CEP
+            for linha in linhas:
+                cep_match = re.search(r'(\d{5}-\d{3})\s+([A-Z\- ]+)', linha)
+                if cep_match:
+                    data['cep'] = cep_match.group(1)
+                    data['cidade'] = cep_match.group(2).title()
+                    break
 
-        # Endereço
-        endereco_match = re.search(r'(R\.?|Rua|Av\.?|Avenida)\s+[A-Z0-9 \-]+,?\s*(\d+)', full_text)
-        if endereco_match:
-            data['rua'] = endereco_match.group(0).split(',')[0].strip()
-            data['numero'] = endereco_match.group(2)
+            # CPF
+            cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
+            if cpf_match:
+                data['cpf'] = cpf_match.group(1)
 
-        # Cidade e CEP
-        cidade_cep_match = re.search(r'(\d{5}-\d{3})\s+(CAMPINAS.*?)\n', full_text)
-        if cidade_cep_match:
-            data['cep'] = cidade_cep_match.group(1)
-            cidade_limpa = cidade_cep_match.group(2).split("Pág")[0].strip()
-            data['cidade'] = cidade_limpa
-
-        # Consumos (captura linhas com vários números + kWh)
+        # Consumos (kWh): encontrar todos na fatura
+        full_text = "\n".join(p.extract_text() for p in pdf.pages if p.extract_text())
         consumo_linhas = re.findall(r'(\d{2,4})\s*kWh', full_text)
         if len(consumo_linhas) >= 12:
             consumos = [int(x) for x in consumo_linhas[-12:]]
