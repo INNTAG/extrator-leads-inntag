@@ -33,35 +33,39 @@ def upload():
     }
 
     with pdfplumber.open(filepath) as pdf:
-        text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
-
-        # Nome do titular
-        nome_match = re.search(r'\n([A-ZÁ-Ú ]{3,})\nCPF[:\s]+\d{3}\.\d{3}\.\d{3}-\d{2}', text)
-        if nome_match:
-            data['nome'] = nome_match.group(1).title().strip()
+        text_pages = [page.extract_text() for page in pdf.pages if page.extract_text()]
+        full_text = "\n".join(text_pages)
+        
+        # Nome: primeira linha em caixa alta da primeira página
+        if text_pages:
+            first_page_lines = text_pages[0].split("\n")
+            for line in first_page_lines:
+                if line.isupper() and len(line.strip()) > 5 and not any(word in line for word in ["CPFL", "NOTA FISCAL", "ENERGIA"]):
+                    data['nome'] = line.strip().title()
+                    break
 
         # CPF
-        cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
+        cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', full_text)
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
 
         # Endereço
-        endereco_match = re.search(r'(R\.?|Rua|Av\.?|Avenida)\s+[A-Z0-9 \-]+,\s*(\d+)', text)
+        endereco_match = re.search(r'(R\.?|Rua|Av\.?|Avenida)\s+[A-Z0-9 \-]+,?\s*(\d+)', full_text)
         if endereco_match:
             data['rua'] = endereco_match.group(0).split(',')[0].strip()
             data['numero'] = endereco_match.group(2)
 
         # Cidade e CEP
-        cidade_cep_match = re.search(r'(\d{5}-\d{3})\s+(CAMPINAS.*?)\n', text)
+        cidade_cep_match = re.search(r'(\d{5}-\d{3})\s+(CAMPINAS.*?)\n', full_text)
         if cidade_cep_match:
             data['cep'] = cidade_cep_match.group(1)
             cidade_limpa = cidade_cep_match.group(2).split("Pág")[0].strip()
             data['cidade'] = cidade_limpa
 
-        # Consumo dos últimos 12 meses (com mês nomeado + valor kWh)
-        consumo_match = re.findall(r'(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[^\d]*(\d{2,4})\s*kWh', text)
-        if len(consumo_match) >= 12:
-            consumos = [int(c) for c in consumo_match[-12:]]
+        # Consumos (captura linhas com vários números + kWh)
+        consumo_linhas = re.findall(r'(\d{2,4})\s*kWh', full_text)
+        if len(consumo_linhas) >= 12:
+            consumos = [int(x) for x in consumo_linhas[-12:]]
             data['consumos'] = consumos
             data['consumo_medio'] = round(sum(consumos) / len(consumos), 2)
 
