@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, send_file
+\from flask import Flask, request, jsonify, render_template, send_file
 import pdfplumber
 import re
 import os
@@ -36,23 +36,19 @@ def upload():
         full_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
         linhas = full_text.split('\n')
 
-        # Nome (primeira linha com tudo em maiúsculo e mais de 3 palavras)
-        for i, linha in enumerate(linhas):
-            if linha.isupper() and len(linha.split()) >= 2:
-                data['nome'] = linha.title()
-                # Endereço: assume próxima linha
-                if i + 1 < len(linhas):
-                    endereco = linhas[i + 1].strip().title()
-                    num_match = re.search(r'(\d+)', endereco)
-                    if num_match:
-                        data['rua'] = endereco.split(',')[0].strip()
-                        data['numero'] = num_match.group(1)
-                # Cidade e CEP: assume linha seguinte
-                if i + 2 < len(linhas):
-                    cidade_cep_match = re.search(r'(\d{5}-\d{3})\s+(.+)', linhas[i + 2])
-                    if cidade_cep_match:
-                        data['cep'] = cidade_cep_match.group(1)
-                        data['cidade'] = cidade_cep_match.group(2).title()
+        # Busca bloco que contenha nome, endereço, bairro e cidade juntos
+        for i in range(len(linhas) - 3):
+            l1, l2, l3, l4 = linhas[i:i+4]
+            if re.match(r'^[A-Z\s]{5,}$', l1) and re.search(r'\d+', l2) and re.search(r'\d{5}-\d{3}', l4):
+                data['nome'] = l1.title()
+                data['rua'] = l2.split(',')[0].strip().title()
+                numero_match = re.search(r'(\d+)', l2)
+                if numero_match:
+                    data['numero'] = numero_match.group(1)
+                cidade_match = re.search(r'(\d{5}-\d{3})\s+(.+)', l4)
+                if cidade_match:
+                    data['cep'] = cidade_match.group(1)
+                    data['cidade'] = cidade_match.group(2).title()
                 break
 
         # CPF
