@@ -68,19 +68,22 @@ def upload():
             data['cep'] = loc_match.group(1)
             data['cidade'] = loc_match.group(2).strip().title()
 
-        consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
-        if consumo_vals:
-            ultimos = consumo_vals[-12:]
-            numericos = []
-            for val in ultimos:
-                num = val.replace('.', '').replace(',', '.')
-                try:
-                    numericos.append(float(num))
-                except:
-                    pass
-            if numericos:
-                data['consumos'] = numericos
-                data['consumo_medio'] = round(sum(numericos) / len(numericos), 2)
+        # Extração do histórico de consumo dos últimos 12 meses com base nas barras inferiores
+        historico_linhas = [l for l in lines if re.search(r'\d{4}\s+[A-Z]{3}\s+\d+[.,]?\d*\s*kWh', l)]
+        valores_consumo = []
+        for linha in historico_linhas:
+            partes = linha.strip().split()
+            for i in range(len(partes)):
+                if re.match(r'\d+[.,]?\d*', partes[i]) and i+1 < len(partes) and partes[i+1].lower() == 'kwh':
+                    try:
+                        val = float(partes[i].replace('.', '').replace(',', '.'))
+                        valores_consumo.append(val)
+                    except:
+                        continue
+        valores_consumo = valores_consumo[-12:]
+        if valores_consumo:
+            data['consumos'] = valores_consumo
+            data['consumo_medio'] = round(sum(valores_consumo) / len(valores_consumo), 2)
 
     return jsonify(data)
 
