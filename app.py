@@ -20,6 +20,7 @@ def upload():
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
+
     data = {
         "nome": "",
         "cpf": "",
@@ -32,24 +33,33 @@ def upload():
         "consumos": [],
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
+
     with pdfplumber.open(filepath) as pdf:
-        full_text = "
-".join(page.extract_text() or "" for page in pdf.pages)
+        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+        # Nome: primeira linha em caixa alta com 2+ palavras
         nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+)", full_text, re.MULTILINE)
         if nome_match:
             data['nome'] = nome_match.group(1).strip().upper()
+
+        # CPF
         cpf_match = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
+
+        # Endereço e número
         end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
         if end_match:
             data['rua'] = end_match.group(1).strip().title()
             data['numero'] = end_match.group(2)
-        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-
-]+?)\s+-\s+[A-Z]{2}", full_text)
+
+        # CEP e cidade
+        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
         if loc_match:
             data['cep'] = loc_match.group(1)
             data['cidade'] = loc_match.group(2).strip().title()
+
+        # Consumo: últimos 12 valores de kWh (captura com vírgula ou ponto)
         consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
         if consumo_vals:
             ultimos = consumo_vals[-12:]
@@ -63,6 +73,7 @@ def upload():
             if numericos:
                 data['consumos'] = numericos
                 data['consumo_medio'] = round(sum(numericos) / len(numericos), 2)
+
     return jsonify(data)
 
 @app.route('/pdf/<filename>')
