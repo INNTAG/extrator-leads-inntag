@@ -1,6 +1,6 @@
-<<<<<<< HEAD
+
 from flask import Flask, request, jsonify, render_template, send_file
-import pdfplumber
+import fitz  # PyMuPDF
 import re
 import os
 from datetime import datetime
@@ -35,55 +35,47 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    with pdfplumber.open(filepath) as pdf:
-        lines = []
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
-                lines.extend(text.splitlines())
+    doc = fitz.open(filepath)
+    for page in doc:
+        blocks = page.get_text("blocks")
 
-        # Captura precisa do CPF e nome baseado em linha anterior
-        for i, line in enumerate(lines):
-            cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', line)
-            if cpf_match:
-                data['cpf'] = cpf_match.group(1)
-                for j in range(i-1, -1, -1):
-                    candidate = lines[j].strip()
-                    if candidate and re.match(r'^[A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,}( [A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,})+$', candidate):
-                        data['nome'] = candidate.upper()
+        for b in blocks:
+            text = b[4]
+            # CPF
+            cpf_match = re.search(r'\b\d{3}\.\d{3}\.\d{3}-\d{2}\b', text)
+            if cpf_match and not data['cpf']:
+                data['cpf'] = cpf_match.group()
+
+            # Nome: linha anterior ao endereço (assume que está antes do 'RUA' ou endereço)
+            if "R " in text.upper() or "RUA" in text.upper():
+                index = blocks.index(b)
+                for above in reversed(blocks[:index]):
+                    nome_line = above[4].strip()
+                    if nome_line and len(nome_line.split()) >= 2:
+                        data['nome'] = nome_line.upper()
                         break
-                break
 
-        full_text = "\n".join(lines)
+            # Endereço e número
+            rua_match = re.search(r'(R\.?\s+[A-ZÇa-zçêáéíóúàèãõâôü0-9\s]+)\s+(\d+)', text)
+            if rua_match:
+                data['rua'] = rua_match.group(1).strip().title()
+                data['numero'] = rua_match.group(2)
 
-        end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
-        if end_match:
-            data['rua'] = end_match.group(1).strip().title()
-            data['numero'] = end_match.group(2)
+            # Cidade e CEP
+            cep_match = re.search(r'(\d{5}-\d{3})\s+(\w+)', text)
+            if cep_match:
+                data['cep'] = cep_match.group(1)
+                data['cidade'] = cep_match.group(2).title()
 
-        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
-        if loc_match:
-            data['cep'] = loc_match.group(1)
-            data['cidade'] = loc_match.group(2).strip().title()
+        # Consumo histórico gráfico (últimos 12 valores)
+        consumo_vals = re.findall(r'\b(\d{2,4})\s?kWh\b', page.get_text())
+        valores_filtrados = [int(val) for val in consumo_vals if 100 <= int(val) <= 9999]
+        if len(valores_filtrados) >= 12:
+            ultimos = valores_filtrados[-12:]
+            data['consumos'] = ultimos
+            data['consumo_medio'] = round(sum(ultimos) / len(ultimos), 2)
 
-        # Extração do histórico de consumo na seção de barras
-        historico_valores = []
-        for page in pdf.pages:
-            table = page.extract_table()
-            if table:
-                for row in table:
-                    if row and any('kWh' in str(cell) for cell in row):
-                        try:
-                            consumo_str = row[1] if row[1] else ''
-                            if consumo_str.strip().isdigit():
-                                historico_valores.append(float(consumo_str.strip()))
-                        except:
-                            pass
-
-        historico_valores = historico_valores[-12:]
-        if historico_valores:
-            data['consumos'] = historico_valores
-            data['consumo_medio'] = round(sum(historico_valores) / len(historico_valores), 2)
+        break  # Só primeira página
 
     return jsonify(data)
 
@@ -97,6 +89,3 @@ def get_pdf(filename):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
-=======
-# Código do app.py será preenchido conforme o canvas salvo
->>>>>>> df84c9d (Atualização com integração do webhook Make e correções no consumo)
