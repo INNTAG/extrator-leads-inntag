@@ -2,6 +2,7 @@
 import pdfplumber
 import re
 import os
+from datetime import datetime
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -29,26 +30,31 @@ def upload():
         "numero": "",
         "consumo_medio": "",
         "arquivo": filename,
-        "consumos": []
+        "consumos": [],
+        "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
     with pdfplumber.open(filepath) as pdf:
         full_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
         linhas = full_text.split('\n')
 
-        # Busca bloco que contenha nome, endereço, bairro e cidade juntos
+        # Bloco com Nome, Endereço, Bairro, Cidade + CEP
         for i in range(len(linhas) - 3):
             l1, l2, l3, l4 = linhas[i:i+4]
-            if re.match(r'^[A-Z\s]{5,}$', l1) and re.search(r'\d+', l2) and re.search(r'\d{5}-\d{3}', l4):
-                data['nome'] = l1.title()
+            if (re.match(r'^[A-Z\s]{5,}$', l1)
+                and "," in l2
+                and re.search(r'\d{5}-\d{3}', l4)):
+                data['nome'] = l1.title().strip()
                 data['rua'] = l2.split(',')[0].strip().title()
-                numero_match = re.search(r'(\d+)', l2)
+                numero_match = re.search(r',(\s*\d+)', l2)
                 if numero_match:
-                    data['numero'] = numero_match.group(1)
-                cidade_match = re.search(r'(\d{5}-\d{3})\s+(.+)', l4)
+                    data['numero'] = numero_match.group(1).strip()
+                cep_match = re.search(r'(\d{5}-\d{3})', l4)
+                cidade_match = re.search(r'\d{5}-\d{3}\s+(.+)', l4)
+                if cep_match:
+                    data['cep'] = cep_match.group(1)
                 if cidade_match:
-                    data['cep'] = cidade_match.group(1)
-                    data['cidade'] = cidade_match.group(2).title()
+                    data['cidade'] = cidade_match.group(1).strip().title()
                 break
 
         # CPF
