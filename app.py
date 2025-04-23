@@ -34,44 +34,45 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    doc = fitz.open(filepath)
-    page = doc[0]
-    words = page.get_text("words")  # list of [x0, y0, x1, y1, word, block_no, line_no, word_no]
-    words_sorted = sorted(words, key=lambda w: (w[1], w[0]))
+    with fitz.open(filepath) as doc:
+        for page in doc:
+            text = page.get_text("text")
 
-    full_text = "\n".join([w[4] for w in words_sorted])
+            # CPF
+            cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
+            if cpf_match:
+                data['cpf'] = cpf_match.group(1)
 
-    for i, w in enumerate(words_sorted):
-        if re.match(r'\d{3}\.\d{3}\.\d{3}-\d{2}', w[4]):
-            data['cpf'] = w[4]
-            y_cpf = w[1]
-            nome_line = [t[4] for t in words_sorted if y_cpf - 70 < t[1] < y_cpf - 10]
-            nome = " ".join(nome_line).strip()
-            nome = re.sub(r'[^A-Z\s]', '', nome.upper())
-            data['nome'] = nome
+            # Nome (linha acima do endereço, ignorando palavras genéricas)
+            lines = text.split('\n')
+            for i, line in enumerate(lines):
+                if re.search(r'\d{5}-\d{3}', line):
+                    for j in range(i - 4, i):
+                        candidate = lines[j].strip()
+                        if len(candidate.split()) >= 2 and not any(word in candidate.upper() for word in ["PREZADO", "MANTENHA", "ATUALIZADOS"]):
+                            data['nome'] = candidate.upper()
+                            break
+                    break
+
+            # Endereço completo com número
+            end_match = re.search(r'(R\.?\s?[A-Z][^,\n]+)[,\s]+(\d+)', text)
+            if end_match:
+                data['rua'] = end_match.group(1).strip().title()
+                data['numero'] = end_match.group(2)
+
+            # Cidade e CEP
+            loc_match = re.search(r'(\d{5}-\d{3})\s+([A-ZÀ-Úa-zà-ú\s]+)', text)
+            if loc_match:
+                data['cep'] = loc_match.group(1)
+                data['cidade'] = loc_match.group(2).strip().title()
+
+            # Consumo histórico (aprimorado)
+            historico_matches = re.findall(r'(\d{3,4})\s*kWh', text, re.IGNORECASE)
+            consumos = [int(x) for x in historico_matches if 100 <= int(x) <= 9999]
+            if len(consumos) >= 2:
+                data['consumos'] = consumos[-12:]  # últimos 12
+                data['consumo_medio'] = round(sum(data['consumos']) / len(data['consumos']), 2)
             break
-
-    cep_cidade = re.search(r'(\d{5}-\d{3})\s+([A-ZÁÉÍÓÚÃÕÇ\s]+)', full_text)
-    if cep_cidade:
-        data['cep'] = cep_cidade.group(1)
-        data['cidade'] = cep_cidade.group(2).strip().title()
-
-    endereco_match = re.search(r'(R\.?\s[^,\n]+)[,\s]+(\d+)', full_text)
-    if endereco_match:
-        data['rua'] = endereco_match.group(1).strip().title()
-        data['numero'] = endereco_match.group(2)
-
-    # Extração do histórico de consumo por área inferior da página
-    consumo_vals = []
-    for page in doc:
-        text = page.get_text("text")
-        historico = re.findall(r'(\d{3,4})\s*kWh', text, re.IGNORECASE)
-        consumo_vals.extend([float(c.replace(',', '.')) for c in historico])
-
-    if consumo_vals:
-        ultimos = consumo_vals[-12:]
-        data['consumos'] = ultimos
-        data['consumo_medio'] = round(sum(ultimos) / len(ultimos), 2)
 
     return jsonify(data)
 
