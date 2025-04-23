@@ -35,10 +35,10 @@ def upload():
     }
 
     with pdfplumber.open(filepath) as pdf:
-        # extrai texto completo
+        # Extrai texto completo
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-        # Nome (primeira linha com 2+ palavras em caixa alta)
+        # Nome (primeira linha em caixa alta com 2+ palavras)
         nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,}(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,})+)", full_text, re.MULTILINE)
         if nome_match:
             data['nome'] = nome_match.group(1).title()
@@ -54,11 +54,15 @@ def upload():
             data['rua'] = end_match.group(1).title().strip()
             data['numero'] = end_match.group(2)
 
-        # CEP e cidade
-        city_match = re.search(r"(\d{5}-\d{3})\s+([A-ZÁÉÍÓÚÂÊÎÔÛÇ\s-]+)", full_text)
+        # CEP e cidade (captura até antes do estado, que são 2 letras)
+        city_match = re.search(
+            r"(\d{5}-\d{3})\s+(.+?)\s+(?=[A-Z]{2}(?:\s|$))",
+            full_text
+        )
         if city_match:
             data['cep'] = city_match.group(1)
-            data['cidade'] = city_match.group(2).strip().title()
+            city_name = city_match.group(2).strip()
+            data['cidade'] = re.sub(r"\s+", " ", city_name).title()
 
         # Consumo dos últimos 12 meses (kWh)
         consumo_vals = re.findall(r"(\d{2,4})\s*kWh", full_text)
