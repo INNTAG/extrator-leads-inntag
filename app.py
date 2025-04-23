@@ -21,6 +21,7 @@ def upload():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
+    # Estrutura de resposta
     data = {
         "nome": "",
         "cpf": "",
@@ -34,13 +35,15 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
+    # Abrir PDF
     with pdfplumber.open(filepath) as pdf:
+        # Texto completo
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-        # Nome: primeira linha em caixa alta
+        # Nome
         nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ ]{4,})$", full_text, re.MULTILINE)
         if nome_match:
-            data['nome'] = nome_match.group(1).title()
+            data['nome'] = nome_match.group(1).strip().upper()
 
         # CPF
         cpf_match = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
@@ -53,19 +56,27 @@ def upload():
             data['rua'] = end_match.group(1).title().strip()
             data['numero'] = end_match.group(2)
 
-        # CEP e Cidade: captura linha "13049-346 CAMPINAS - SP"
+        # CEP e cidade
         loc_match = re.search(r"(\d{5}-\d{3})\s+([^-\n]+)\s+-\s+([A-Z]{2})", full_text)
         if loc_match:
             data['cep'] = loc_match.group(1)
             city = loc_match.group(2).strip()
             data['cidade'] = re.sub(r"\s+", " ", city).title()
 
-        # Consumo últimos 12 meses
-        consumo_vals = re.findall(r"(\d{2,4})\s*kWh", full_text)
-        if len(consumo_vals) >= 12:
-            vals = [int(x) for x in consumo_vals[-12:]]
-            data['consumos'] = vals
-            data['consumo_medio'] = round(sum(vals)/len(vals), 2)
+        # Consumo últimos 12 meses: capturar valores como '853,000 kWh'
+        consumo_matches = re.findall(r"(\d+(?:[\.,]\d+)?)\s*kWh", full_text)
+        if consumo_matches and len(consumo_matches) >= 12:
+            # Converter string '853,000' -> float 853.0
+            vals = []
+            for x in consumo_matches[-12:]:
+                num = x.replace('.', '').replace(',', '.')
+                try:
+                    vals.append(float(num))
+                except:
+                    continue
+            if vals:
+                data['consumos'] = vals
+                data['consumo_medio'] = round(sum(vals)/len(vals), 2)
 
     return jsonify(data)
 
