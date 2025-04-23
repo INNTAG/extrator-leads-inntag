@@ -35,11 +35,10 @@ def upload():
     }
 
     with pdfplumber.open(filepath) as pdf:
-        # Extrai texto completo
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-        # Nome (primeira linha em caixa alta com 2+ palavras)
-        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,}(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,})+)", full_text, re.MULTILINE)
+        # Nome: primeira linha em caixa alta
+        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ ]{4,})$", full_text, re.MULTILINE)
         if nome_match:
             data['nome'] = nome_match.group(1).title()
 
@@ -49,27 +48,24 @@ def upload():
             data['cpf'] = cpf_match.group(1)
 
         # Endereço e número
-        end_match = re.search(r"(R\.? [A-ZÁÉÍÓÚÂÊÎÔÛÇ0-9\s]+),\s*(\d+)", full_text)
+        end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
         if end_match:
             data['rua'] = end_match.group(1).title().strip()
             data['numero'] = end_match.group(2)
 
-        # CEP e cidade (captura até antes do estado, que são 2 letras)
-        city_match = re.search(
-            r"(\d{5}-\d{3})\s+(.+?)\s+(?=[A-Z]{2}(?:\s|$))",
-            full_text
-        )
-        if city_match:
-            data['cep'] = city_match.group(1)
-            city_name = city_match.group(2).strip()
-            data['cidade'] = re.sub(r"\s+", " ", city_name).title()
+        # CEP e Cidade: captura linha "13049-346 CAMPINAS - SP"
+        loc_match = re.search(r"(\d{5}-\d{3})\s+([^-\n]+)\s+-\s+([A-Z]{2})", full_text)
+        if loc_match:
+            data['cep'] = loc_match.group(1)
+            city = loc_match.group(2).strip()
+            data['cidade'] = re.sub(r"\s+", " ", city).title()
 
-        # Consumo dos últimos 12 meses (kWh)
+        # Consumo últimos 12 meses
         consumo_vals = re.findall(r"(\d{2,4})\s*kWh", full_text)
         if len(consumo_vals) >= 12:
-            consumos = [int(x) for x in consumo_vals[-12:]]
-            data['consumos'] = consumos
-            data['consumo_medio'] = round(sum(consumos)/len(consumos), 2)
+            vals = [int(x) for x in consumo_vals[-12:]]
+            data['consumos'] = vals
+            data['consumo_medio'] = round(sum(vals)/len(vals), 2)
 
     return jsonify(data)
 
