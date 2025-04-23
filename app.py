@@ -39,8 +39,8 @@ def upload():
     with pdfplumber.open(filepath) as pdf:
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-        # Nome: primeira linha em caixa alta com pelo menos duas palavras
-        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+))", full_text, re.MULTILINE)
+        # Nome: primeira linha em caixa alta com 2+ palavras (regex corrigido)
+        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+)", full_text, re.MULTILINE)
         if nome_match:
             data['nome'] = nome_match.group(1).strip().upper()
 
@@ -49,28 +49,27 @@ def upload():
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
 
-        # Endereço (Rua) e número
+        # Endereço e número
         end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
         if end_match:
             data['rua'] = end_match.group(1).strip().title()
             data['numero'] = end_match.group(2)
 
-        # CEP e cidade (linha padrão "13049-346 CAMPINAS - SP")
+        # CEP e cidade
         loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
         if loc_match:
             data['cep'] = loc_match.group(1)
             data['cidade'] = loc_match.group(2).strip().title()
 
-        # Consumo: últimos 12 valores de kWh com decimais
+        # Consumo: últimos 12 valores de kWh (captura com vírgula ou ponto)
         consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
         if consumo_vals:
-            # Pega os últimos 12
             ultimos = consumo_vals[-12:]
             numericos = []
             for val in ultimos:
-                v = val.replace('.', '').replace(',', '.')
+                num = val.replace('.', '').replace(',', '.')
                 try:
-                    numericos.append(float(v))
+                    numericos.append(float(num))
                 except:
                     pass
             if numericos:
