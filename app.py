@@ -33,45 +33,37 @@ def upload():
     }
 
     with pdfplumber.open(filepath) as pdf:
-        if not pdf.pages:
-            return jsonify(data)
+        full_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        linhas = full_text.split('\n')
 
-        page = pdf.pages[0]
-        crop = page.within_bbox((0, 320, page.width, 480))  # Área da tarja verde
-        text = crop.extract_text() if crop else page.extract_text()
+        # Nome (primeira linha com tudo em maiúsculo e mais de 3 palavras)
+        for i, linha in enumerate(linhas):
+            if linha.isupper() and len(linha.split()) >= 2:
+                data['nome'] = linha.title()
+                # Endereço: assume próxima linha
+                if i + 1 < len(linhas):
+                    endereco = linhas[i + 1].strip().title()
+                    num_match = re.search(r'(\d+)', endereco)
+                    if num_match:
+                        data['rua'] = endereco.split(',')[0].strip()
+                        data['numero'] = num_match.group(1)
+                # Cidade e CEP: assume linha seguinte
+                if i + 2 < len(linhas):
+                    cidade_cep_match = re.search(r'(\d{5}-\d{3})\s+(.+)', linhas[i + 2])
+                    if cidade_cep_match:
+                        data['cep'] = cidade_cep_match.group(1)
+                        data['cidade'] = cidade_cep_match.group(2).title()
+                break
 
-        if text:
-            linhas = text.split('\n')
-            # Nome é a primeira linha em caixa alta
-            if len(linhas) > 0 and linhas[0].isupper():
-                data['nome'] = linhas[0].title()
+        # CPF
+        cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', full_text)
+        if cpf_match:
+            data['cpf'] = cpf_match.group(1)
 
-            # Rua e número
-            for linha in linhas:
-                rua_match = re.search(r'R\s?[A-Z ]+,?\s?(\d+)', linha)
-                if rua_match:
-                    data['rua'] = linha.split(',')[0].strip().title()
-                    data['numero'] = rua_match.group(1)
-                    break
-
-            # Cidade e CEP
-            for linha in linhas:
-                cep_match = re.search(r'(\d{5}-\d{3})\s+([A-Z\- ]+)', linha)
-                if cep_match:
-                    data['cep'] = cep_match.group(1)
-                    data['cidade'] = cep_match.group(2).title()
-                    break
-
-            # CPF
-            cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
-            if cpf_match:
-                data['cpf'] = cpf_match.group(1)
-
-        # Consumos (kWh): encontrar todos na fatura
-        full_text = "\n".join(p.extract_text() for p in pdf.pages if p.extract_text())
-        consumo_linhas = re.findall(r'(\d{2,4})\s*kWh', full_text)
-        if len(consumo_linhas) >= 12:
-            consumos = [int(x) for x in consumo_linhas[-12:]]
+        # Consumo: buscar 12 valores em kWh da seção de histórico
+        consumo_valores = re.findall(r'(\d{2,4})\s*kWh', full_text)
+        if len(consumo_valores) >= 12:
+            consumos = [int(x) for x in consumo_valores[-12:]]
             data['consumos'] = consumos
             data['consumo_medio'] = round(sum(consumos) / len(consumos), 2)
 
