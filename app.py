@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify, render_template, send_file
 import fitz  # PyMuPDF
 import re
@@ -34,38 +35,59 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    with fitz.open(filepath) as pdf:
-        text = "\n".join([page.get_text() for page in pdf])
+    with fitz.open(filepath) as doc:
+        for page in doc:
+            text = page.get_text()
 
-        # Nome: linha acima de RES ZURICH ou acima do endereço
-        match_nome = re.search(r"(?<=\n)([A-Z\s]+)(?=\nR\s+BERNARDO|\nRES ZURICH)", text)
-        if match_nome:
-            data['nome'] = match_nome.group(1).strip()
+            cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
+            if cpf_match:
+                data['cpf'] = cpf_match.group(1)
 
-        # CPF
-        match_cpf = re.search(r"(\d{3}\.\d{3}\.\d{3}-\d{2})", text)
-        if match_cpf:
-            data['cpf'] = match_cpf.group(1)
+            blocks = page.get_text("dict")['blocks']
+            cpf_block = None
+            for block in blocks:
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        if data['cpf'] in span['text']:
+                            cpf_block = span
+                            break
+            if cpf_block:
+                y_cpf = cpf_block['bbox'][1]
+                nome_candidato = ""
+                for block in blocks:
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            if y_cpf - 100 < span['bbox'][1] < y_cpf - 5:
+                                nome_candidato += span['text'] + " "
+                nome = " ".join(nome_candidato.strip().split())
+                if len(nome.split()) >= 2:
+                    data['nome'] = nome.upper()
 
-        # Rua e número
-        match_end = re.search(r"(R\.?\s[^\n,]+)\s+(\d+)[^\n]*", text)
-        if match_end:
-            data['rua'] = match_end.group(1).strip()
-            data['numero'] = match_end.group(2)
+            endereco_match = re.search(r'(R\.\s?[^,\n]+),\s*(\d+)', text)
+            if endereco_match:
+                data['rua'] = endereco_match.group(1).strip()
+                data['numero'] = endereco_match.group(2).strip()
 
-        # CEP e cidade
-        match_cep = re.search(r"(\d{5}-\d{3})\s+(.*?)\s+-\s+[A-Z]{2}", text)
-        if match_cep:
-            data['cep'] = match_cep.group(1)
-            data['cidade'] = match_cep.group(2).strip()
+            loc_match = re.search(r'(\d{5}-\d{3})\s+([A-Z\s]+)', text)
+            if loc_match:
+                data['cep'] = loc_match.group(1)
+                data['cidade'] = loc_match.group(2).title()
 
-        # Consumos: capturar a tabela final com meses e kWh
-        historico = re.findall(r"(\d{3,4})\s+\d{2,3}", text)
-        consumos = [int(kwh) for kwh in historico if 100 <= int(kwh) <= 9999]
-        if len(consumos) >= 12:
-            consumos = consumos[-12:]
-            data['consumos'] = consumos
-            data['consumo_medio'] = round(sum(consumos)/len(consumos), 2)
+            blocks_baixos = [b for b in blocks if b['bbox'][1] > page.rect.height - 300]
+            consumos = []
+            for block in blocks_baixos:
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        nums = re.findall(r'\b\d{3,4}\b', span['text'])
+                        for n in nums:
+                            val = int(n)
+                            if 100 <= val <= 9999:
+                                consumos.append(val)
+            if len(consumos) >= 6:
+                ultimos = consumos[-12:]
+                data['consumos'] = ultimos
+                data['consumo_medio'] = round(sum(ultimos) / len(ultimos), 2)
+            break
 
     return jsonify(data)
 
