@@ -16,12 +16,12 @@ def form():
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    # Recebe e salva o arquivo
     file = request.files['file']
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
-    # Estrutura de resposta
     data = {
         "nome": "",
         "cpf": "",
@@ -35,13 +35,12 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    # Abrir PDF
+    # Abre e extrai texto do PDF
     with pdfplumber.open(filepath) as pdf:
-        # Texto completo
         full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-        # Nome
-        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ ]{4,})$", full_text, re.MULTILINE)
+        # Nome: primeira linha em caixa alta com pelo menos duas palavras
+        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+))", full_text, re.MULTILINE)
         if nome_match:
             data['nome'] = nome_match.group(1).strip().upper()
 
@@ -50,33 +49,33 @@ def upload():
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
 
-        # Endereço e número
+        # Endereço (Rua) e número
         end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
         if end_match:
-            data['rua'] = end_match.group(1).title().strip()
+            data['rua'] = end_match.group(1).strip().title()
             data['numero'] = end_match.group(2)
 
-        # CEP e cidade
-        loc_match = re.search(r"(\d{5}-\d{3})\s+([^-\n]+)\s+-\s+([A-Z]{2})", full_text)
+        # CEP e cidade (linha padrão "13049-346 CAMPINAS - SP")
+        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
         if loc_match:
             data['cep'] = loc_match.group(1)
-            city = loc_match.group(2).strip()
-            data['cidade'] = re.sub(r"\s+", " ", city).title()
+            data['cidade'] = loc_match.group(2).strip().title()
 
-        # Consumo últimos 12 meses: capturar valores como '853,000 kWh'
-        consumo_matches = re.findall(r"(\d+(?:[\.,]\d+)?)\s*kWh", full_text)
-        if consumo_matches and len(consumo_matches) >= 12:
-            # Converter string '853,000' -> float 853.0
-            vals = []
-            for x in consumo_matches[-12:]:
-                num = x.replace('.', '').replace(',', '.')
+        # Consumo: últimos 12 valores de kWh com decimais
+        consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
+        if consumo_vals:
+            # Pega os últimos 12
+            ultimos = consumo_vals[-12:]
+            numericos = []
+            for val in ultimos:
+                v = val.replace('.', '').replace(',', '.')
                 try:
-                    vals.append(float(num))
+                    numericos.append(float(v))
                 except:
-                    continue
-            if vals:
-                data['consumos'] = vals
-                data['consumo_medio'] = round(sum(vals)/len(vals), 2)
+                    pass
+            if numericos:
+                data['consumos'] = numericos
+                data['consumo_medio'] = round(sum(numericos) / len(numericos), 2)
 
     return jsonify(data)
 
@@ -88,4 +87,5 @@ def get_pdf(filename):
     return 'Arquivo não encontrado', 404
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
