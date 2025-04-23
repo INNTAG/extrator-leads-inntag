@@ -1,9 +1,9 @@
-from flask import Flask, request, jsonify, render_template, send_file
 import fitz  # PyMuPDF
-import os
+from flask import Flask, request, jsonify, render_template
 import re
-from datetime import datetime
+import os
 from werkzeug.utils import secure_filename
+from datetime import datetime
 
 app = Flask(__name__)
 UPLOAD_FOLDER = 'uploads'
@@ -28,55 +28,61 @@ def upload():
         "cep": "",
         "rua": "",
         "numero": "",
-        "consumo_medio": 0,
+        "consumo_medio": "",
         "arquivo": filename,
         "consumos": [],
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    doc = fitz.open(filepath)
-    full_text = ""
-    for page in doc:
-        full_text += page.get_text()
+    with fitz.open(filepath) as pdf:
+        for page in pdf:
+            text = page.get_text("text")
 
-    # Nome
-    nome_match = re.search(r'(LU[IÍ]Z\s+[A-Z\s]+CAMARGO)', full_text)
-    if nome_match:
-        data['nome'] = nome_match.group(1).strip()
+            # CPF
+            cpf_match = re.search(r'(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
+            if cpf_match:
+                data['cpf'] = cpf_match.group(1)
 
-    # CPF
-    cpf_match = re.search(r'\d{3}\.\d{3}\.\d{3}-\d{2}', full_text)
-    if cpf_match:
-        data['cpf'] = cpf_match.group(0)
+            # Extrai bloco "DADOS DA UNIDADE CONSUMIDORA"
+            if "DADOS DA UNIDADE CONSUMIDORA" in text:
+                lines = text.splitlines()
+                start_index = None
+                for i, line in enumerate(lines):
+                    if "DADOS DA UNIDADE CONSUMIDORA" in line:
+                        start_index = i + 1
+                        break
+                if start_index:
+                    bloco = lines[start_index:start_index+4]
+                    if len(bloco) >= 4:
+                        data['nome'] = bloco[0].strip()
+                        data['rua'] = bloco[1].strip()
+                        bairro_linha = bloco[2].strip()
+                        cidade_cep_uf = bloco[3].strip()
 
-    # Cidade e CEP
-    loc_match = re.search(r'(\d{5}-\d{3})\s+([A-Z\s]{3,})', full_text)
-    if loc_match:
-        data['cep'] = loc_match.group(1)
-        data['cidade'] = loc_match.group(2).strip().title()
+                        # Número (últimos dígitos na linha da rua)
+                        numero_match = re.search(r'(\d+)', data['rua'])
+                        if numero_match:
+                            data['numero'] = numero_match.group(1)
 
-    # Endereço e número
-    rua_match = re.search(r'(R\s+[A-Za-zÀ-ÿ\s]+)\s+(\d{1,4})', full_text)
-    if rua_match:
-        data['rua'] = rua_match.group(1).strip()
-        data['numero'] = rua_match.group(2).strip()
+                        # Cidade, CEP e UF
+                        cep_cidade_match = re.search(r'(\d{5}-\d{3})\s+(.*?)\s*-\s*([A-Z]{2})', cidade_cep_uf)
+                        if cep_cidade_match:
+                            data['cep'] = cep_cidade_match.group(1)
+                            data['cidade'] = cep_cidade_match.group(2).strip()
 
-    # Consumo histórico (12 valores)
-    historico_match = re.findall(r'\b(\d{3,4})\b\s+(?:\d{1,2})', full_text)
-    consumos = [int(v) for v in historico_match if 100 < int(v) < 9999]
-    if len(consumos) >= 12:
-        data['consumos'] = consumos[-12:]
-        data['consumo_medio'] = round(sum(data['consumos']) / 12, 2)
+            # Consumos (gráfico inferior)
+            blocos = page.search_for("HISTÓRICO DE CONSUMO")
+            if blocos:
+                bbox = fitz.Rect(0, blocos[0].y1 + 5, page.rect.width, page.rect.height)
+                historico = page.get_text("text", clip=bbox)
+                matches = re.findall(r'(\d{2,4})\s*$', historico, re.MULTILINE)
+                valores = [int(v) for v in matches if 100 <= int(v) <= 9999]
+                if len(valores) >= 6:
+                    data['consumos'] = valores[-12:]
+                    data['consumo_medio'] = round(sum(data['consumos']) / len(data['consumos']), 2)
+            break
 
     return jsonify(data)
 
-@app.route('/pdf/<filename>')
-def get_pdf(filename):
-    path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if os.path.exists(path):
-        return send_file(path)
-    return 'Arquivo não encontrado', 404
-
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True)
