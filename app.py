@@ -41,19 +41,16 @@ def upload():
             if text:
                 lines.extend(text.splitlines())
 
-        # Busca o CPF e captura o nome a partir da linha anterior
+        # Captura precisa do CPF e nome baseado em linha anterior
         for i, line in enumerate(lines):
-            if re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', line):
-                cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', line)
-                if cpf_match:
-                    data['cpf'] = cpf_match.group(1)
-                if i > 0:
-                    possible_name = lines[i-1].strip()
-                    if (
-                        re.match(r'^[A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,}( [A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,})+$', possible_name)
-                        and "NOTA FISCAL" not in possible_name
-                    ):
-                        data['nome'] = possible_name.upper()
+            cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', line)
+            if cpf_match:
+                data['cpf'] = cpf_match.group(1)
+                for j in range(i-1, -1, -1):
+                    candidate = lines[j].strip()
+                    if candidate and re.match(r'^[A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,}( [A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,})+$', candidate):
+                        data['nome'] = candidate.upper()
+                        break
                 break
 
         full_text = "\n".join(lines)
@@ -68,22 +65,24 @@ def upload():
             data['cep'] = loc_match.group(1)
             data['cidade'] = loc_match.group(2).strip().title()
 
-        # Extração do histórico de consumo dos últimos 12 meses com base nas barras inferiores
-        historico_linhas = [l for l in lines if re.search(r'\d{4}\s+[A-Z]{3}\s+\d+[.,]?\d*\s*kWh', l)]
-        valores_consumo = []
-        for linha in historico_linhas:
-            partes = linha.strip().split()
-            for i in range(len(partes)):
-                if re.match(r'\d+[.,]?\d*', partes[i]) and i+1 < len(partes) and partes[i+1].lower() == 'kwh':
+        # Extração do histórico de consumo dos últimos 12 meses
+        historico_inicio = False
+        historico_valores = []
+        for line in lines:
+            if re.search(r"HISTÓRICO DE CONSUMO", line, re.IGNORECASE):
+                historico_inicio = True
+                continue
+            if historico_inicio:
+                matches = re.findall(r'(\d{1,3}[.,]?\d{0,3})\s*kWh', line, re.IGNORECASE)
+                for m in matches:
                     try:
-                        val = float(partes[i].replace('.', '').replace(',', '.'))
-                        valores_consumo.append(val)
+                        historico_valores.append(float(m.replace('.', '').replace(',', '.')))
                     except:
-                        continue
-        valores_consumo = valores_consumo[-12:]
-        if valores_consumo:
-            data['consumos'] = valores_consumo
-            data['consumo_medio'] = round(sum(valores_consumo) / len(valores_consumo), 2)
+                        pass
+        historico_valores = historico_valores[-12:]
+        if historico_valores:
+            data['consumos'] = historico_valores
+            data['consumo_medio'] = round(sum(historico_valores) / len(historico_valores), 2)
 
     return jsonify(data)
 
