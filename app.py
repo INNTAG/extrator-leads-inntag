@@ -28,39 +28,42 @@ def upload():
         "rua": "",
         "numero": "",
         "consumo_medio": "",
-        "arquivo": filename
+        "arquivo": filename,
+        "consumos": []
     }
 
     with pdfplumber.open(filepath) as pdf:
         text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
 
-        bloco_identificacao = re.search(r'((?:[A-ZÁ-Ú ]{3,})\nCPF[:\s]+\d{3}\.\d{3}\.\d{3}-\d{2})', text)
-        if bloco_identificacao:
-            nome_match = re.search(r'^([A-ZÁ-Ú ]{3,})', bloco_identificacao.group(1))
-            if nome_match:
-                data['nome'] = nome_match.group(1).strip().title()
+        # Nome do titular
+        nome_match = re.search(r'\n([A-ZÁ-Ú ]{3,})\nCPF[:\s]+\d{3}\.\d{3}\.\d{3}-\d{2}', text)
+        if nome_match:
+            data['nome'] = nome_match.group(1).title().strip()
 
+        # CPF
         cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', text)
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
 
+        # Endereço
         endereco_match = re.search(r'(R\.?|Rua|Av\.?|Avenida)\s+[A-Z0-9 \-]+,\s*(\d+)', text)
         if endereco_match:
             data['rua'] = endereco_match.group(0).split(',')[0].strip()
             data['numero'] = endereco_match.group(2)
 
+        # Cidade e CEP
         cidade_cep_match = re.search(r'(\d{5}-\d{3})\s+(CAMPINAS.*?)\n', text)
         if cidade_cep_match:
             data['cep'] = cidade_cep_match.group(1)
             cidade_limpa = cidade_cep_match.group(2).split("Pág")[0].strip()
             data['cidade'] = cidade_limpa
 
-        consumo_match = re.findall(r'(\d{3,4})\s+kWh', text)
-        if consumo_match:
-            consumos = [int(val) for val in consumo_match[-12:]]
-            if consumos:
-                media = round(sum(consumos) / len(consumos), 2)
-                data['consumo_medio'] = media
+        # Consumo dos últimos 12 meses (com mês nomeado + valor kWh)
+        consumo_match = re.findall(r'(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)[^\d]*(\d{2,4})\s*kWh', text)
+        if len(consumo_match) >= 12:
+            consumos = [int(c) for c in consumo_match[-12:]]
+            data['consumos'] = consumos
+            data['consumo_medio'] = round(sum(consumos) / len(consumos), 2)
 
     return jsonify(data)
 
