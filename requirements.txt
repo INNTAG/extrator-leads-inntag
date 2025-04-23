@@ -1,4 +1,3 @@
-Flask
-pdfplumber
-werkzeug
-python-dateutil
+Flask==2.2.2
+pdfplumber==0.5.28
+Werkzeug==2.2.2
