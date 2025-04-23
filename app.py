@@ -16,7 +16,6 @@ def form():
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    # Recebe e salva o arquivo
     file = request.files['file']
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -35,33 +34,40 @@ def upload():
         "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
     }
 
-    # Abre e extrai texto do PDF
     with pdfplumber.open(filepath) as pdf:
-        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        lines = []
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                lines.extend(text.splitlines())
 
-        # Nome: primeira linha em caixa alta com 2+ palavras (regex corrigido)
-        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+)", full_text, re.MULTILINE)
-        if nome_match:
-            data['nome'] = nome_match.group(1).strip().upper()
+        # Busca o CPF e captura o nome a partir da linha anterior
+        for i, line in enumerate(lines):
+            if re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', line):
+                cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', line)
+                if cpf_match:
+                    data['cpf'] = cpf_match.group(1)
+                if i > 0:
+                    possible_name = lines[i-1].strip()
+                    if (
+                        re.match(r'^[A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,}( [A-ZÁÉÍÓÚÂÊÎÔÛÇ]{2,})+$', possible_name)
+                        and "NOTA FISCAL" not in possible_name
+                    ):
+                        data['nome'] = possible_name.upper()
+                break
 
-        # CPF
-        cpf_match = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
-        if cpf_match:
-            data['cpf'] = cpf_match.group(1)
+        full_text = "\n".join(lines)
 
-        # Endereço e número
         end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
         if end_match:
             data['rua'] = end_match.group(1).strip().title()
             data['numero'] = end_match.group(2)
 
-        # CEP e cidade
         loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
         if loc_match:
             data['cep'] = loc_match.group(1)
             data['cidade'] = loc_match.group(2).strip().title()
 
-        # Consumo: últimos 12 valores de kWh (captura com vírgula ou ponto)
         consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
         if consumo_vals:
             ultimos = consumo_vals[-12:]
