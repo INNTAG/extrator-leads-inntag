@@ -28,61 +28,62 @@ def upload():
         "cep": "",
         "rua": "",
         "numero": "",
-        "consumo_medio": "",
-        "arquivo": filename,
         "consumos": [],
-        "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        "consumo_medio": "",
+        "timestamp": datetime.now().strftime('%d/%m/%Y %H:%M:%S'),
+        "arquivo": filename
     }
 
     with pdfplumber.open(filepath) as pdf:
-        full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+        # Captura do nome: primeira linha não vazia da primeira página
+        first_page = pdf.pages[0]
+        lines0 = first_page.extract_text().splitlines()
+        for l in lines0:
+            if l.strip():
+                data['nome'] = l.strip().upper()
+                break
 
-        # Nome: primeira linha em caixa alta com 2+ palavras
-        nome_match = re.search(r"^([A-ZÁÉÍÓÚÂÊÎÔÛÇ]+(?: [A-ZÁÉÍÓÚÂÊÎÔÛÇ]+)+)", full_text, re.MULTILINE)
-        if nome_match:
-            data['nome'] = nome_match.group(1).strip().upper()
+        full_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
 
         # CPF
-        cpf_match = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
-        if cpf_match:
-            data['cpf'] = cpf_match.group(1)
+        m = re.search(r"CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})", full_text)
+        if m: data['cpf'] = m.group(1)
 
         # Endereço e número
-        end_match = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
-        if end_match:
-            data['rua'] = end_match.group(1).strip().title()
-            data['numero'] = end_match.group(2)
+        m = re.search(r"(R\.? [^,]+),\s*(\d+)", full_text)
+        if m:
+            data['rua'] = m.group(1).title()
+            data['numero'] = m.group(2)
 
-        # CEP e cidade
-        loc_match = re.search(r"(\d{5}-\d{3})\s+([^\-\n]+?)\s+-\s+[A-Z]{2}", full_text)
-        if loc_match:
-            data['cep'] = loc_match.group(1)
-            data['cidade'] = loc_match.group(2).strip().title()
+        # CEP e cidade (até antes de ' - SP' ou similar)
+        m = re.search(r"(\d{5}-\d{3})\s+(.+?)\s+-\s+[A-Z]{2}", full_text)
+        if m:
+            data['cep'] = m.group(1)
+            data['cidade'] = m.group(2).strip().title()
 
-        # Consumo: últimos 12 valores de kWh (captura com vírgula ou ponto)
-        consumo_vals = re.findall(r"(\d+(?:[.,]\d+)?)\s*kWh", full_text, re.IGNORECASE)
-        if consumo_vals:
-            ultimos = consumo_vals[-12:]
-            numericos = []
-            for val in ultimos:
-                num = val.replace('.', '').replace(',', '.')
+        # Extrair histórico dos últimos 12 meses
+        hist = []
+        for line in full_text.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 4 and re.match(r"^\d{4}", parts[0]):
+                mes = parts[1]
+                raw = parts[2].replace('.', '').replace(',', '.')
                 try:
-                    numericos.append(float(num))
+                    val = float(raw)
+                    hist.append((mes, val))
                 except:
                     pass
-            if numericos:
-                data['consumos'] = numericos
-                data['consumo_medio'] = round(sum(numericos) / len(numericos), 2)
+        hist = hist[:12]
+        if hist:
+            data['consumos'] = [v for (_, v) in hist]
+            data['consumo_medio'] = round(sum(v for (_, v) in hist)/len(hist), 2)
 
     return jsonify(data)
 
 @app.route('/pdf/<filename>')
 def get_pdf(filename):
     path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    if os.path.exists(path):
-        return send_file(path)
-    return 'Arquivo não encontrado', 404
+    return send_file(path) if os.path.exists(path) else ('Arquivo não encontrado', 404)
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
