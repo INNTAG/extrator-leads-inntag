@@ -1,4 +1,4 @@
-\from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, render_template, send_file
 import pdfplumber
 import re
 import os
@@ -38,7 +38,6 @@ def upload():
         full_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
         linhas = full_text.split('\n')
 
-        # Bloco com Nome, Endereço, Bairro, Cidade + CEP
         for i in range(len(linhas) - 3):
             l1, l2, l3, l4 = linhas[i:i+4]
             if (re.match(r'^[A-Z\s]{5,}$', l1)
@@ -57,12 +56,10 @@ def upload():
                     data['cidade'] = cidade_match.group(1).strip().title()
                 break
 
-        # CPF
         cpf_match = re.search(r'CPF[:\s]+(\d{3}\.\d{3}\.\d{3}-\d{2})', full_text)
         if cpf_match:
             data['cpf'] = cpf_match.group(1)
 
-        # Consumo: buscar 12 valores em kWh da seção de histórico
         consumo_valores = re.findall(r'(\d{2,4})\s*kWh', full_text)
         if len(consumo_valores) >= 12:
             consumos = [int(x) for x in consumo_valores[-12:]]
