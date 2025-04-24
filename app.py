@@ -31,24 +31,29 @@ class PDFProcessor:
         cep = ""
         start_idx = 0
 
+        # 🔐 Captura CPF e nome da mesma linha
         for i, line in enumerate(lines):
             cpf_match = re.search(r"(.*?)CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", line)
             if cpf_match:
                 nome = cpf_match.group(1).strip()
                 cpf = cpf_match.group(2)
                 start_idx = i
+
+                # 📍 Endereço: linha seguinte
                 if i + 1 < len(lines):
                     endereco = lines[i + 1].strip()
+
+                # 🌎 Cidade, CEP, Estado: linha dois abaixo do CPF
                 if i + 2 < len(lines):
-                    cidade_cep_line = lines[i + 2].strip()
+                    cidade_cep_line = lines[i + 2]
                     match = re.search(r"(\d{5}-\d{3})\s+([A-Z\s]+)\s+([A-Z]{2})", cidade_cep_line)
                     if match:
                         cep = match.group(1)
                         cidade = match.group(2).strip()
-                        estado = match.group(3)
+                        estado = match.group(3).strip()
                 break
 
-        # Separar rua e número com mais precisão
+        # 🏘️ Separar rua e número com padrão melhor
         rua = endereco
         numero = ""
         match = re.search(r"(.+?)\s+(\d+.*)", endereco)
@@ -56,7 +61,7 @@ class PDFProcessor:
             rua = match.group(1).strip()
             numero = match.group(2).strip()
 
-        # Histórico de consumo
+        # ⚡ Histórico de consumo
         historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", "\n".join(lines[start_idx:]))
         historico_consumo = list(map(int, historico_raw[:12]))
         while len(historico_consumo) < 12:
