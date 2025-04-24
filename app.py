@@ -1,116 +1,119 @@
-import streamlit as st
-import fitz  # PyMuPDF
-import tempfile
+from flask import Flask, request, jsonify, send_from_directory
+import os
 import re
-import base64
 import requests
-import io
+import pdfplumber
+from werkzeug.utils import secure_filename
 
-# 🌞 Paleta Inntag (tom de laranja, cinza claro, verde claro)
-INNTAG_PRIMARY = "#FF8200"
-INNTAG_SECONDARY = "#E9ECEF"
-INNTAG_ACCENT = "#7DBE31"
+app = Flask(__name__)
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+app.config['WEBHOOK_URL'] = 'https://hook.us1.make.com/fg9doeumoj2xcb35tjpog3uvwt4oacqd'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-st.set_page_config(page_title="Extração de Conta - Inntag Energia Solar", layout="centered")
+ALLOWED_EXTENSIONS = {'pdf'}
 
-st.markdown(
-    f"""
-    <style>
-        .stApp {{
-            background-color: {INNTAG_SECONDARY};
-        }}
-        .title {{
-            color: {INNTAG_PRIMARY};
-            text-align: center;
-        }}
-        .stTextInput > div > label {{
-            font-weight: bold;
-        }}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+class PDFProcessor:
+    def __init__(self, filepath):
+        self.filepath = filepath
 
-st.markdown(f"<h1 class='title'>📄 Extração de Conta de Energia - Inntag</h1>", unsafe_allow_html=True)
+    def extract_data(self):
+        text = ""
+        with pdfplumber.open(self.filepath) as pdf:
+            for page in pdf.pages:
+                text += page.extract_text() + "\n"
 
-# Upload de PDF
-uploaded_file = st.file_uploader("📤 Envie ou arraste aqui sua conta de energia (PDF)", type=["pdf"])
+        nome = ""
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if "DADOS DA UNIDADE CONSUMIDORA" in line.upper():
+                for j in range(i+1, len(lines)):
+                    possible_name = lines[j].strip()
+                    if possible_name:
+                        nome = possible_name
+                        break
+                break
 
-def extract_text_from_pdf(file) -> str:
-    doc = fitz.open(stream=file.read(), filetype="pdf")
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return text
+        endereco_match = re.search(r"(R(?:ua)?|AV(?:enida)?)[^\n]+", text)
+        endereco = endereco_match.group(0).strip() if endereco_match else ""
+        rua = endereco
+        numero = ""
+        if "," in endereco:
+            rua, numero = [x.strip() for x in endereco.split(",", 1)]
 
-def extract_data(text: str):
-    # Nome, endereço, cidade, estado, CEP
-    nome_match = re.search(r"([A-Z\s]+)\nR ", text)
-    endereco_match = re.search(r"R (.+)\n", text)
-    cep_cidade_estado_match = re.search(r"(\d{5}-\d{3}) (.+?) - ([A-Z]{2})", text)
+        cep_cidade_estado_match = re.search(r"(\d{5}-\d{3})\s+([A-Za-z\s]+)\s*-\s*([A-Z]{2})", text)
+        cep = cep_cidade_estado_match.group(1) if cep_cidade_estado_match else ""
+        cidade = cep_cidade_estado_match.group(2).strip() if cep_cidade_estado_match else ""
+        estado = cep_cidade_estado_match.group(3) if cep_cidade_estado_match else ""
 
-    # Histórico de consumo
-    historico = re.findall(r"202\d\s[A-Z]{3}.*?(\d{3,4})\s+\d{2}", text)
-    historico_consumo = list(map(int, historico[:12]))
-    media_consumo = sum(historico_consumo) / len(historico_consumo) if historico_consumo else 0
+        cpf_match = re.search(r"CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", text)
+        cpf = cpf_match.group(1) if cpf_match else ""
 
-    return {
-        "nome": nome_match.group(1).strip() if nome_match else "",
-        "endereco": f"R {endereco_match.group(1).strip()}" if endereco_match else "",
-        "cep": cep_cidade_estado_match.group(1) if cep_cidade_estado_match else "",
-        "cidade": cep_cidade_estado_match.group(2) if cep_cidade_estado_match else "",
-        "estado": cep_cidade_estado_match.group(3) if cep_cidade_estado_match else "",
-        "historico": historico_consumo,
-        "media_consumo": round(media_consumo, 2),
-    }
+        historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", text)
+        historico_consumo = list(map(int, historico_raw[:12]))
+        while len(historico_consumo) < 12:
+            historico_consumo.insert(0, 0)
+        media_consumo = round(sum(historico_consumo) / 12, 2)
 
-if uploaded_file:
-    st.success("✅ Arquivo carregado com sucesso!")
+        return {
+            "nome": nome,
+            "cpf": cpf,
+            "cep": cep,
+            "cidade": cidade,
+            "estado": estado,
+            "rua": rua,
+            "numero": numero,
+            "historico": historico_consumo,
+            "media_consumo": media_consumo
+        }
 
-    with st.expander("📄 Visualizar arquivo"):
-        st.download_button("📥 Baixar PDF", data=uploaded_file.getvalue(), file_name=uploaded_file.name)
-        base64_pdf = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
-        st.markdown(f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+@app.route('/')
+def index():
+    return send_from_directory('templates', 'index.html')
 
-    text = extract_text_from_pdf(uploaded_file)
-    data = extract_data(text)
+@app.route('/static/<path:path>')
+def send_static(path):
+    return send_from_directory('static', path)
 
-    # Formulário de edição
-    with st.form("formulario_dados"):
-        st.subheader("✏️ Editar ou preencher dados")
-        nome = st.text_input("Nome", value=data['nome'])
-        endereco = st.text_input("Endereço", value=data['endereco'])
-        cep = st.text_input("CEP", value=data['cep'])
-        cidade = st.text_input("Cidade", value=data['cidade'])
-        estado = st.text_input("Estado", value=data['estado'])
-        email = st.text_input("Email")
-        telefone = st.text_input("Telefone")
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-        st.markdown("📊 Consumo (últimos 12 meses)")
-        cols = st.columns(4)
-        consumos = []
-        for i, v in enumerate(data['historico']):
-            with cols[i % 4]:
-                c = st.number_input(f"Mês {i+1}", min_value=0, value=v)
-                consumos.append(c)
-        media = round(sum(consumos) / len(consumos), 2)
-        st.text(f"Média de consumo: {media} kWh")
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Nenhum arquivo enviado'}), 400
+    file = request.files['file']
+    if file.filename == '' or not allowed_file(file.filename):
+        return jsonify({'error': 'Arquivo inválido'}), 400
 
-        submitted = st.form_submit_button("🚀 Enviar via Webhook")
-        if submitted:
-            payload = {
-                "nome": nome,
-                "endereco": endereco,
-                "cep": cep,
-                "cidade": cidade,
-                "estado": estado,
-                "email": email,
-                "telefone": telefone,
-                "consumo_mensal": consumos,
-                "media_consumo": media
-            }
-            response = requests.post("https://hook.us1.make.com/fg9doeumoj2xcb35tjpog3uvwt4oacqd", json=payload)
-            if response.status_code == 200:
-                st.success("✅ Dados enviados com sucesso!")
-            else:
-                st.error("❌ Erro ao enviar os dados.")
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
+
+    try:
+        processor = PDFProcessor(filepath)
+        data = processor.extract_data()
+        return jsonify({
+            "nome": data.get("nome", ""),
+            "cpf": data.get("cpf", ""),
+            "cidade": data.get("cidade", ""),
+            "cep": data.get("cep", ""),
+            "rua": data.get("rua", ""),
+            "numero": data.get("numero", ""),
+            "consumo_medio": data.get("media_consumo", 0),
+            "consumos": data.get("historico", [])
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/send-webhook', methods=['POST'])
+def send_webhook():
+    try:
+        response = requests.post(app.config['WEBHOOK_URL'], json=request.json)
+        if response.status_code == 200:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'status': response.status_code}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
