@@ -20,21 +20,29 @@ class PDFProcessor:
         text = ""
         with pdfplumber.open(self.filepath) as pdf:
             for page in pdf.pages:
-                text += page.extract_text() + "\n"
+                full_text = page.extract_text()
+                if "DADOS DA UNIDADE CONSUMIDORA" in full_text.upper():
+                    split_text = full_text.upper().split("DADOS DA UNIDADE CONSUMIDORA", 1)[1]
+                    text += "DADOS DA UNIDADE CONSUMIDORA\n" + split_text.strip() + "\n"
 
         nome = ""
         endereco = ""
         lines = text.splitlines()
+
         for i, line in enumerate(lines):
             if "DADOS DA UNIDADE CONSUMIDORA" in line.upper():
-                for j in range(i + 1, len(lines)):
+                for j in range(i + 1, i + 6):
+                    if j >= len(lines):
+                        break
                     possible_name = lines[j].strip()
-                    if possible_name:
+                    if possible_name and not any(char.isdigit() for char in possible_name):
                         nome = possible_name
                         break
-                for k in range(j + 1, len(lines)):
+                for k in range(j + 1, j + 6):
+                    if k >= len(lines):
+                        break
                     possible_address = lines[k].strip()
-                    if possible_address:
+                    if possible_address and re.search(r"\d", possible_address):
                         endereco = possible_address
                         break
                 break
