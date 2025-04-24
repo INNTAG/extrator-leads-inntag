@@ -1,105 +1,116 @@
-from flask import Flask, request, jsonify, render_template, send_from_directory
-import os
-import json
+import streamlit as st
+import fitz  # PyMuPDF
+import tempfile
+import re
+import base64
 import requests
-from werkzeug.utils import secure_filename
-from pdf_processor import PDFProcessor
+import io
 
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload size
-app.config['WEBHOOK_URL'] = 'https://hook.us1.make.com/fg9doeumoj2xcb35tjpog3uvwt4oacqd'
+# 🌞 Paleta Inntag (tom de laranja, cinza claro, verde claro)
+INNTAG_PRIMARY = "#FF8200"
+INNTAG_SECONDARY = "#E9ECEF"
+INNTAG_ACCENT = "#7DBE31"
 
-# Criar pasta de uploads se não existir
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+st.set_page_config(page_title="Extração de Conta - Inntag Energia Solar", layout="centered")
 
-ALLOWED_EXTENSIONS = {'pdf'}
+st.markdown(
+    f"""
+    <style>
+        .stApp {{
+            background-color: {INNTAG_SECONDARY};
+        }}
+        .title {{
+            color: {INNTAG_PRIMARY};
+            text-align: center;
+        }}
+        .stTextInput > div > label {{
+            font-weight: bold;
+        }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+st.markdown(f"<h1 class='title'>📄 Extração de Conta de Energia - Inntag</h1>", unsafe_allow_html=True)
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# Upload de PDF
+uploaded_file = st.file_uploader("📤 Envie ou arraste aqui sua conta de energia (PDF)", type=["pdf"])
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+def extract_text_from_pdf(file) -> str:
+    doc = fitz.open(stream=file.read(), filetype="pdf")
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
 
-@app.route('/extract', methods=['POST'])
-def extract_data():
-    # Verificar se o arquivo foi enviado
-    if 'file' not in request.files:
-        return jsonify({'error': 'Nenhum arquivo enviado'}), 400
-    
-    file = request.files['file']
-    
-    # Verificar se o nome do arquivo está vazio
-    if file.filename == '':
-        return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
-    
-    # Verificar se o arquivo é um PDF
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Formato de arquivo não permitido. Apenas PDFs são aceitos.'}), 400
-    
-    # Salvar o arquivo
-    filename = secure_filename(file.filename)
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(filepath)
-    
-    # Processar o PDF
-    try:
-        processor = PDFProcessor(filepath)
-        data = processor.extract_data()
-        
-        # Adicionar o caminho do arquivo para referência
-        result = {
-            'success': True,
-            'data': data,
-            'filename': filename,
-            'filepath': filepath
-        }
-        
-        return jsonify(result)
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'filename': filename
-        }), 500
+def extract_data(text: str):
+    # Nome, endereço, cidade, estado, CEP
+    nome_match = re.search(r"([A-Z\s]+)\nR ", text)
+    endereco_match = re.search(r"R (.+)\n", text)
+    cep_cidade_estado_match = re.search(r"(\d{5}-\d{3}) (.+?) - ([A-Z]{2})", text)
 
-@app.route('/send-webhook', methods=['POST'])
-def send_webhook():
-    data = request.json
-    
-    if not data:
-        return jsonify({'error': 'Dados não fornecidos'}), 400
-    
-    try:
-        # Enviar dados para o webhook
-        response = requests.post(
-            app.config['WEBHOOK_URL'],
-            json=data,
-            headers={'Content-Type': 'application/json'}
-        )
-        
-        if response.status_code == 200:
-            return jsonify({
-                'success': True,
-                'message': 'Dados enviados com sucesso para o webhook'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': f'Erro ao enviar dados: {response.status_code} - {response.text}'
-            }), 500
-    
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': f'Erro ao enviar dados: {str(e)}'
-        }), 500
+    # Histórico de consumo
+    historico = re.findall(r"202\d\s[A-Z]{3}.*?(\d{3,4})\s+\d{2}", text)
+    historico_consumo = list(map(int, historico[:12]))
+    media_consumo = sum(historico_consumo) / len(historico_consumo) if historico_consumo else 0
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    return {
+        "nome": nome_match.group(1).strip() if nome_match else "",
+        "endereco": f"R {endereco_match.group(1).strip()}" if endereco_match else "",
+        "cep": cep_cidade_estado_match.group(1) if cep_cidade_estado_match else "",
+        "cidade": cep_cidade_estado_match.group(2) if cep_cidade_estado_match else "",
+        "estado": cep_cidade_estado_match.group(3) if cep_cidade_estado_match else "",
+        "historico": historico_consumo,
+        "media_consumo": round(media_consumo, 2),
+    }
+
+if uploaded_file:
+    st.success("✅ Arquivo carregado com sucesso!")
+
+    with st.expander("📄 Visualizar arquivo"):
+        st.download_button("📥 Baixar PDF", data=uploaded_file.getvalue(), file_name=uploaded_file.name)
+        base64_pdf = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+        st.markdown(f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+
+    text = extract_text_from_pdf(uploaded_file)
+    data = extract_data(text)
+
+    # Formulário de edição
+    with st.form("formulario_dados"):
+        st.subheader("✏️ Editar ou preencher dados")
+        nome = st.text_input("Nome", value=data['nome'])
+        endereco = st.text_input("Endereço", value=data['endereco'])
+        cep = st.text_input("CEP", value=data['cep'])
+        cidade = st.text_input("Cidade", value=data['cidade'])
+        estado = st.text_input("Estado", value=data['estado'])
+        email = st.text_input("Email")
+        telefone = st.text_input("Telefone")
+
+        st.markdown("📊 Consumo (últimos 12 meses)")
+        cols = st.columns(4)
+        consumos = []
+        for i, v in enumerate(data['historico']):
+            with cols[i % 4]:
+                c = st.number_input(f"Mês {i+1}", min_value=0, value=v)
+                consumos.append(c)
+        media = round(sum(consumos) / len(consumos), 2)
+        st.text(f"Média de consumo: {media} kWh")
+
+        submitted = st.form_submit_button("🚀 Enviar via Webhook")
+        if submitted:
+            payload = {
+                "nome": nome,
+                "endereco": endereco,
+                "cep": cep,
+                "cidade": cidade,
+                "estado": estado,
+                "email": email,
+                "telefone": telefone,
+                "consumo_mensal": consumos,
+                "media_consumo": media
+            }
+            response = requests.post("https://hook.us1.make.com/fg9doeumoj2xcb35tjpog3uvwt4oacqd", json=payload)
+            if response.status_code == 200:
+                st.success("✅ Dados enviados com sucesso!")
+            else:
+                st.error("❌ Erro ao enviar os dados.")
