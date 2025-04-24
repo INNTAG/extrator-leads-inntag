@@ -23,30 +23,42 @@ class PDFProcessor:
                 text += page.extract_text() + "\n"
 
         nome = ""
+        endereco = ""
         lines = text.splitlines()
         for i, line in enumerate(lines):
             if "DADOS DA UNIDADE CONSUMIDORA" in line.upper():
-                for j in range(i+1, len(lines)):
+                for j in range(i + 1, len(lines)):
                     possible_name = lines[j].strip()
                     if possible_name:
                         nome = possible_name
                         break
+                for k in range(j + 1, len(lines)):
+                    possible_address = lines[k].strip()
+                    if possible_address:
+                        endereco = possible_address
+                        break
                 break
 
-        endereco_match = re.search(r"(R(?:ua)?|AV(?:enida)?)[^\n]+", text)
-        endereco = endereco_match.group(0).strip() if endereco_match else ""
         rua = endereco
         numero = ""
         if "," in endereco:
             rua, numero = [x.strip() for x in endereco.split(",", 1)]
+        elif re.search(r"\d+", endereco):
+            match = re.search(r"(.*?)(\d+.*)", endereco)
+            if match:
+                rua = match.group(1).strip()
+                numero = match.group(2).strip()
 
+        cep = cidade = estado = cpf = ""
         cep_cidade_estado_match = re.search(r"(\d{5}-\d{3})\s+([A-Za-z\s]+)\s*-\s*([A-Z]{2})", text)
-        cep = cep_cidade_estado_match.group(1) if cep_cidade_estado_match else ""
-        cidade = cep_cidade_estado_match.group(2).strip() if cep_cidade_estado_match else ""
-        estado = cep_cidade_estado_match.group(3) if cep_cidade_estado_match else ""
+        if cep_cidade_estado_match:
+            cep = cep_cidade_estado_match.group(1)
+            cidade = cep_cidade_estado_match.group(2).strip()
+            estado = cep_cidade_estado_match.group(3).strip()
 
         cpf_match = re.search(r"CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", text)
-        cpf = cpf_match.group(1) if cpf_match else ""
+        if cpf_match:
+            cpf = cpf_match.group(1)
 
         historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", text)
         historico_consumo = list(map(int, historico_raw[:12]))
