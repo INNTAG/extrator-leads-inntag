@@ -1,80 +1,105 @@
-from flask import Flask, request, jsonify, render_template
-import fitz  # PyMuPDF
-import re
+from flask import Flask, request, jsonify, render_template, send_from_directory
 import os
+import json
+import requests
 from werkzeug.utils import secure_filename
+from pdf_processor import PDFProcessor
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload size
+app.config['WEBHOOK_URL'] = 'https://hook.us1.make.com/fg9doeumoj2xcb35tjpog3uvwt4oacqd'
+
+# Criar pasta de uploads se não existir
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+ALLOWED_EXTENSIONS = {'pdf'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/upload', methods=['POST'])
-def upload():
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/extract', methods=['POST'])
+def extract_data():
+    # Verificar se o arquivo foi enviado
+    if 'file' not in request.files:
+        return jsonify({'error': 'Nenhum arquivo enviado'}), 400
+    
     file = request.files['file']
+    
+    # Verificar se o nome do arquivo está vazio
+    if file.filename == '':
+        return jsonify({'error': 'Nenhum arquivo selecionado'}), 400
+    
+    # Verificar se o arquivo é um PDF
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Formato de arquivo não permitido. Apenas PDFs são aceitos.'}), 400
+    
+    # Salvar o arquivo
     filename = secure_filename(file.filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
+    
+    # Processar o PDF
+    try:
+        processor = PDFProcessor(filepath)
+        data = processor.extract_data()
+        
+        # Adicionar o caminho do arquivo para referência
+        result = {
+            'success': True,
+            'data': data,
+            'filename': filename,
+            'filepath': filepath
+        }
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'filename': filename
+        }), 500
 
-    data = {
-        "nome": "",
-        "cpf": "",
-        "cidade": "",
-        "cep": "",
-        "rua": "",
-        "numero": "",
-        "consumo_medio": 0,
-        "consumos": [],
-        "arquivo": filename,
-    }
-
-    with fitz.open(filepath) as doc:
-        for page in doc:
-            text = page.get_text()
-
-            # CPF
-            cpf_match = re.search(r'\d{3}\.\d{3}\.\d{3}-\d{2}', text)
-            if cpf_match:
-                data["cpf"] = cpf_match.group(0)
-
-            # Bloco de dados da unidade consumidora
-            if "DADOS DA UNIDADE CONSUMIDORA" in text:
-                bloco = text.split("DADOS DA UNIDADE CONSUMIDORA")[1]
-                linhas = bloco.strip().split("\n")[:4]
-
-                if len(linhas) >= 4:
-                    data["nome"] = linhas[0].strip()
-                    rua_linha = linhas[1]
-                    data["rua"] = rua_linha.split(",")[0].strip().title()
-
-                    numero_match = re.search(r',\s*(\d+)', rua_linha)
-                    if numero_match:
-                        data["numero"] = numero_match.group(1)
-
-                    cidade_linha = linhas[3]
-                    cep_match = re.search(r'\d{5}-\d{3}', cidade_linha)
-                    if cep_match:
-                        data["cep"] = cep_match.group(0)
-                        cidade_estado = cidade_linha.split(cep_match.group(0))[-1].strip()
-                        if " - " in cidade_estado:
-                            cidade = cidade_estado.split(" - ")[0].strip()
-                            data["cidade"] = cidade.title()
-
-            # Histórico de consumo (últimos 12 meses com valores reais)
-            consumo_matches = re.findall(r'(\d{2,4})\s+kWh', text)
-            consumos = [int(v) for v in consumo_matches if 100 <= int(v) <= 9999]
-            if len(consumos) >= 2:
-                consumos = consumos[-12:]
-                data["consumos"] = consumos
-                data["consumo_medio"] = round(sum(consumos) / len(consumos), 2)
-
-            break  # processa apenas a primeira página
-
-    return jsonify(data)
+@app.route('/send-webhook', methods=['POST'])
+def send_webhook():
+    data = request.json
+    
+    if not data:
+        return jsonify({'error': 'Dados não fornecidos'}), 400
+    
+    try:
+        # Enviar dados para o webhook
+        response = requests.post(
+            app.config['WEBHOOK_URL'],
+            json=data,
+            headers={'Content-Type': 'application/json'}
+        )
+        
+        if response.status_code == 200:
+            return jsonify({
+                'success': True,
+                'message': 'Dados enviados com sucesso para o webhook'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Erro ao enviar dados: {response.status_code} - {response.text}'
+            }), 500
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Erro ao enviar dados: {str(e)}'
+        }), 500
 
 if __name__ == '__main__':
-  app.run(host='0.0.0.0', port=10000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
