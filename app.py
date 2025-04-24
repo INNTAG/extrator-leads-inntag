@@ -31,13 +31,17 @@ class PDFProcessor:
         cep = ""
         start_idx = 0
 
+        # Procurar CPF e extrair nome da mesma linha
         for i, line in enumerate(lines):
-            cpf_match = re.search(r"CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", line)
+            cpf_match = re.search(r"(.*?)CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", line)
             if cpf_match:
-                cpf = cpf_match.group(1)
+                nome = cpf_match.group(1).strip()
+                cpf = cpf_match.group(2)
                 start_idx = i
-                nome = lines[i - 1].strip() if i > 0 else ""
-                endereco = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                # Endereço abaixo do CPF
+                if i + 1 < len(lines):
+                    endereco = lines[i + 1].strip()
+                # Cidade / CEP / UF na linha seguinte
                 if i + 2 < len(lines):
                     cidade_cep_line = lines[i + 2]
                     match = re.search(r"(\d{5}-\d{3})\s+([A-Z\s]+)\s*-\s*([A-Z]{2})", cidade_cep_line)
