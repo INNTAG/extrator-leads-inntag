@@ -1,161 +1,122 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Extrator de Leads - Conta de Energia</title>
+  <meta charset="UTF-8" />
+  <title>Extrator de Contas - Inntag</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
-      margin: 0;
-      padding: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background-color: #f4f6f8;
-      color: #373;
-    }
-    .container {
+      font-family: sans-serif;
+      padding: 20px;
       display: flex;
       gap: 20px;
-      padding: 30px;
     }
-    .column {
+    #left, #right {
       flex: 1;
-      background-color: #ffffff;
-      border-radius: 12px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.05);
-      padding: 20px;
     }
-    h2 {
-      font-size: 1.4rem;
-      margin-bottom: 15px;
-      color: #1a73e8;
-    }
-    label {
-      display: block;
-      margin-bottom: 10px;
-      font-weight: 500;
-    }
-    input {
+    input, button {
       width: 100%;
       padding: 8px;
-      border-radius: 6px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    pre {
+      background: #f9f9f9;
       border: 1px solid #ccc;
-      margin-bottom: 15px;
-    }
-    button {
-      padding: 10px 20px;
-      background-color: #1a73e8;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    #pdf-viewer {
-      width: 100%;
-      height: 400px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      margin-top: 20px;
-    }
-    #drop-area {
-      border: 2px dashed #1a73e8;
-      border-radius: 10px;
-      padding: 40px;
-      text-align: center;
-      color: #1a73e8;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    canvas {
-      margin-top: 20px;
+      padding: 10px;
+      height: 200px;
+      overflow: auto;
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="column">
-      <h2>1. Dados extraídos</h2>
-      <label>Nome:<input id="nome" readonly></label>
-      <label>CPF:<input id="cpf" readonly></label>
-      <label>Cidade:<input id="cidade" readonly></label>
-      <label>CEP:<input id="cep" readonly></label>
-      <label>Rua:<input id="rua" readonly></label>
-      <label>Número:<input id="numero" readonly></label>
-      <label>Consumo médio:<input id="consumo_medio" readonly></label>
-      <canvas id="graficoConsumo" height="200"></canvas>
-    </div>
-    <div class="column">
-      <h2>2. Upload da conta</h2>
-      <div id="drop-area">Clique ou arraste o PDF da conta</div>
-      <iframe id="pdf-viewer"></iframe>
-      <button id="criar">Criar Lead</button>
-    </div>
+  <div id="left">
+    <h2>🔍 Dados extraídos da conta</h2>
+    <label>Nome:<input id="nome" /></label>
+    <label>CPF:<input id="cpf" /></label>
+    <label>Cidade:<input id="cidade" /></label>
+    <label>CEP:<input id="cep" /></label>
+    <label>Rua:<input id="rua" /></label>
+    <label>Número:<input id="numero" /></label>
+    <label>Consumo médio:<input id="consumo_medio" /></label>
+
+    <canvas id="chart" width="400" height="200" style="margin-top:10px;"></canvas>
+
+    <h3>🧪 Log da extração</h3>
+    <pre id="log-output">Aguardando upload...</pre>
   </div>
 
-  <input type="file" id="fileInput" style="display:none" accept="application/pdf">
+  <div id="right">
+    <h2>📎 Upload da conta em PDF</h2>
+    <input type="file" id="upload" accept="application/pdf" />
+    <button onclick="enviar()">📤 Enviar Lead via Webhook</button>
+
+    <iframe id="preview" width="100%" height="500" style="border:1px solid #ddd; margin-top:10px;"></iframe>
+  </div>
 
   <script>
-    const dropArea = document.getElementById('drop-area');
-    const fileInput = document.getElementById('fileInput');
-    const viewer = document.getElementById('pdf-viewer');
+    function renderChart(data) {
+      if (!window.Chart) return;
+      new Chart(document.getElementById("chart"), {
+        type: "bar",
+        data: {
+          labels: [
+            "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+            "Jul", "Ago", "Set", "Out", "Nov", "Dez"
+          ],
+          datasets: [{
+            label: "Consumo (kWh)",
+            data,
+            backgroundColor: "#2c3e50"
+          }]
+        }
+      });
+    }
 
-    dropArea.onclick = () => fileInput.click();
-    fileInput.onchange = handleUpload;
-    dropArea.ondrop = e => { e.preventDefault(); fileInput.files = e.dataTransfer.files; handleUpload(); };
-    dropArea.ondragover = e => e.preventDefault();
-
-    function handleUpload() {
-      const file = fileInput.files[0];
+    document.getElementById("upload").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
       if (!file) return;
 
       const form = new FormData();
-      form.append('file', file);
-      fetch('/upload', {
-        method: 'POST',
+      form.append("file", file);
+
+      const res = await fetch("/upload", {
+        method: "POST",
         body: form
-      })
-      .then(res => res.json())
-      .then(data => preencherDados(data, file));
-    }
-
-    function preencherDados(data, file) {
-      document.getElementById('nome').value = data.nome;
-      document.getElementById('cpf').value = data.cpf;
-      document.getElementById('cidade').value = data.cidade;
-      document.getElementById('cep').value = data.cep;
-      document.getElementById('rua').value = data.rua;
-      document.getElementById('numero').value = data.numero;
-      document.getElementById('consumo_medio').value = data.consumo_medio;
-      viewer.src = URL.createObjectURL(file);
-      desenharGrafico(data.consumos);
-    }
-
-    function desenharGrafico(consumos) {
-      const ctx = document.getElementById('graficoConsumo').getContext('2d');
-      if (window.chart) window.chart.destroy();
-      const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-      const labels = meses.slice(-consumos.length);
-
-      window.chart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: labels,
-          datasets: [{
-            label: 'Consumo (kWh)',
-            data: consumos,
-            backgroundColor: '#1a73e8'
-          }]
-        },
-        options: {
-          responsive: true,
-          scales: {
-            y: {
-              beginAtZero: true
-            }
-          }
-        }
       });
+      const data = await res.json();
+
+      // Preencher campos
+      for (let campo of ["nome", "cpf", "cidade", "cep", "rua", "numero", "consumo_medio"]) {
+        document.getElementById(campo).value = data[campo] || "";
+      }
+
+      // Preencher gráfico
+      renderChart(data.consumos || []);
+
+      // Mostrar log
+      document.getElementById("log-output").innerText = (data.log || []).join("\\n");
+
+      // Visualização do PDF
+      const blob = new Blob([file], { type: file.type });
+      document.getElementById("preview").src = URL.createObjectURL(blob);
+    });
+
+    async function enviar() {
+      const campos = ["nome", "cpf", "cidade", "cep", "rua", "numero", "consumo_medio"];
+      const dados = campos.reduce((acc, id) => {
+        acc[id] = document.getElementById(id).value;
+        return acc;
+      }, {});
+
+      const res = await fetch("/send-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dados),
+      });
+
+      alert("Lead enviado com status: " + res.status);
     }
   </script>
 </body>
