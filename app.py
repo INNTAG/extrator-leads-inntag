@@ -31,36 +31,30 @@ class PDFProcessor:
         cep = ""
         start_idx = 0
 
-        # Procurar CPF e extrair nome da mesma linha
         for i, line in enumerate(lines):
             cpf_match = re.search(r"(.*?)CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", line)
             if cpf_match:
                 nome = cpf_match.group(1).strip()
                 cpf = cpf_match.group(2)
                 start_idx = i
-                # Endereço abaixo do CPF
                 if i + 1 < len(lines):
                     endereco = lines[i + 1].strip()
-                # Cidade / CEP / UF na linha seguinte
                 if i + 2 < len(lines):
-                    cidade_cep_line = lines[i + 2]
-                    match = re.search(r"(\d{5}-\d{3})\s+([A-Z\s]+)\s*-\s*([A-Z]{2})", cidade_cep_line)
+                    cidade_cep_line = lines[i + 2].strip()
+                    match = re.search(r"(\d{5}-\d{3})\s+([A-Z\s]+)\s+([A-Z]{2})", cidade_cep_line)
                     if match:
                         cep = match.group(1)
                         cidade = match.group(2).strip()
                         estado = match.group(3)
                 break
 
-        # Separar rua e número
+        # Separar rua e número com mais precisão
         rua = endereco
         numero = ""
-        if "," in endereco:
-            rua, numero = [x.strip() for x in endereco.split(",", 1)]
-        elif re.search(r"\d+", endereco):
-            match = re.search(r"(.*?)(\d+.*)", endereco)
-            if match:
-                rua = match.group(1).strip()
-                numero = match.group(2).strip()
+        match = re.search(r"(.+?)\s+(\d+.*)", endereco)
+        if match:
+            rua = match.group(1).strip()
+            numero = match.group(2).strip()
 
         # Histórico de consumo
         historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", "\n".join(lines[start_idx:]))
@@ -132,3 +126,4 @@ def send_webhook():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
