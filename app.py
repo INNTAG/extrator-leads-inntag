@@ -20,33 +20,34 @@ class PDFProcessor:
         text = ""
         with pdfplumber.open(self.filepath) as pdf:
             for page in pdf.pages:
-                full_text = page.extract_text()
-                if "DADOS DA UNIDADE CONSUMIDORA" in full_text.upper():
-                    split_text = full_text.upper().split("DADOS DA UNIDADE CONSUMIDORA", 1)[1]
-                    text += "DADOS DA UNIDADE CONSUMIDORA\n" + split_text.strip() + "\n"
+                text += page.extract_text() + "\n"
 
+        lines = text.splitlines()
+        cpf = ""
         nome = ""
         endereco = ""
-        lines = text.splitlines()
+        cidade = ""
+        estado = ""
+        cep = ""
+        start_idx = 0
 
         for i, line in enumerate(lines):
-            if "DADOS DA UNIDADE CONSUMIDORA" in line.upper():
-                for j in range(i + 1, i + 6):
-                    if j >= len(lines):
-                        break
-                    possible_name = lines[j].strip()
-                    if possible_name and not any(char.isdigit() for char in possible_name):
-                        nome = possible_name
-                        break
-                for k in range(j + 1, j + 6):
-                    if k >= len(lines):
-                        break
-                    possible_address = lines[k].strip()
-                    if possible_address and re.search(r"\d", possible_address):
-                        endereco = possible_address
-                        break
+            cpf_match = re.search(r"CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", line)
+            if cpf_match:
+                cpf = cpf_match.group(1)
+                start_idx = i
+                nome = lines[i - 1].strip() if i > 0 else ""
+                endereco = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                if i + 2 < len(lines):
+                    cidade_cep_line = lines[i + 2]
+                    match = re.search(r"(\d{5}-\d{3})\s+([A-Z\s]+)\s*-\s*([A-Z]{2})", cidade_cep_line)
+                    if match:
+                        cep = match.group(1)
+                        cidade = match.group(2).strip()
+                        estado = match.group(3)
                 break
 
+        # Separar rua e número
         rua = endereco
         numero = ""
         if "," in endereco:
@@ -57,18 +58,8 @@ class PDFProcessor:
                 rua = match.group(1).strip()
                 numero = match.group(2).strip()
 
-        cep = cidade = estado = cpf = ""
-        cep_cidade_estado_match = re.search(r"(\d{5}-\d{3})\s+([A-Za-z\s]+)\s*-\s*([A-Z]{2})", text)
-        if cep_cidade_estado_match:
-            cep = cep_cidade_estado_match.group(1)
-            cidade = cep_cidade_estado_match.group(2).strip()
-            estado = cep_cidade_estado_match.group(3).strip()
-
-        cpf_match = re.search(r"CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", text)
-        if cpf_match:
-            cpf = cpf_match.group(1)
-
-        historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", text)
+        # Histórico de consumo
+        historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", "\n".join(lines[start_idx:]))
         historico_consumo = list(map(int, historico_raw[:12]))
         while len(historico_consumo) < 12:
             historico_consumo.insert(0, 0)
