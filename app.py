@@ -17,6 +17,7 @@ class PDFProcessor:
         self.filepath = filepath
 
     def extract_data(self):
+        log = ["Iniciando extração PDF..."]
         text = ""
         with pdfplumber.open(self.filepath) as pdf:
             for page in pdf.pages:
@@ -31,19 +32,17 @@ class PDFProcessor:
         cep = ""
         start_idx = 0
 
-        # 🔐 Captura CPF e nome da mesma linha
         for i, line in enumerate(lines):
             cpf_match = re.search(r"(.*?)CPF:\s*(\d{3}\.\d{3}\.\d{3}-\d{2})", line)
             if cpf_match:
                 nome = cpf_match.group(1).strip()
                 cpf = cpf_match.group(2)
+                log.append(f"CPF encontrado: {cpf}")
+                log.append(f"Nome detectado: {nome}")
                 start_idx = i
-
-                # 📍 Endereço: linha seguinte
                 if i + 1 < len(lines):
                     endereco = lines[i + 1].strip()
-
-                # 🌎 Cidade, CEP, Estado: linha dois abaixo do CPF
+                    log.append(f"Endereço linha: {endereco}")
                 if i + 2 < len(lines):
                     cidade_cep_line = lines[i + 2]
                     match = re.search(r"(\d{5}-\d{3})\s+([A-Z\s]+)\s+([A-Z]{2})", cidade_cep_line)
@@ -51,22 +50,23 @@ class PDFProcessor:
                         cep = match.group(1)
                         cidade = match.group(2).strip()
                         estado = match.group(3).strip()
+                        log.append(f"CEP: {cep} | Cidade: {cidade} | Estado: {estado}")
                 break
 
-        # 🏘️ Separar rua e número com padrão melhor
         rua = endereco
         numero = ""
         match = re.search(r"(.+?)\s+(\d+.*)", endereco)
         if match:
             rua = match.group(1).strip()
             numero = match.group(2).strip()
+        log.append(f"Rua: {rua} | Número: {numero}")
 
-        # ⚡ Histórico de consumo
         historico_raw = re.findall(r"(\d{3,4})\s+\d{2}", "\n".join(lines[start_idx:]))
         historico_consumo = list(map(int, historico_raw[:12]))
         while len(historico_consumo) < 12:
             historico_consumo.insert(0, 0)
         media_consumo = round(sum(historico_consumo) / 12, 2)
+        log.append(f"Histórico: {historico_consumo} | Média: {media_consumo}")
 
         return {
             "nome": nome,
@@ -77,7 +77,8 @@ class PDFProcessor:
             "rua": rua,
             "numero": numero,
             "historico": historico_consumo,
-            "media_consumo": media_consumo
+            "media_consumo": media_consumo,
+            "log": log
         }
 
 @app.route('/')
@@ -114,7 +115,8 @@ def upload_file():
             "rua": data.get("rua", ""),
             "numero": data.get("numero", ""),
             "consumo_medio": data.get("media_consumo", 0),
-            "consumos": data.get("historico", [])
+            "consumos": data.get("historico", []),
+            "log": data.get("log", [])
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -131,3 +133,4 @@ def send_webhook():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
